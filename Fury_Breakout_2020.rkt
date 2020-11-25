@@ -1,6 +1,6 @@
 ;; The first three lines of this file were inserted by DrRacket. They record metadata
 ;; about the language level of this file in a form that our tools can easily process.
-#reader(lib "htdp-advanced-reader.ss" "lang")((modname Fury_Breakout_2020_v5) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #t #t none #f () #f)))
+#reader(lib "htdp-advanced-reader.ss" "lang")((modname Fury_Breakout_2020) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #t #t none #f () #f)))
 
 ;; TODO
 ; validate line-circle-intersection points with a rectangles
@@ -300,14 +300,15 @@
                                                          left bottom BALL-RADIUS
                                                          (lambda (a)
                                                            (or (<= (/ pi 2) a pi)
-                                                               (<= (- pi) a
+                                                               (<= (- pi)
+                                                                   a
                                                                    (- (/ (- pi (acos (- 1 (/ (* w w) (* 2 r r))))) 2) pi))))))
                (define t-bottom-right (line-arc-intercept x1 y1 x2 y2
                                                           right bottom BALL-RADIUS
                                                           (lambda (a)
-                                                            (or (<= 0 a (/ pi 2))
-                                                                (<= 0 a
-                                                                    (- (/ (- pi (acos (- 1 (/ (* w w) (* 2 r r))))) 2)))))))
+                                                            (<= (- (/ (- pi (acos (- 1 (/ (* w w) (* 2 r r))))) 2))
+                                                                a
+                                                                (/ pi 2)))))
                (define t-top (line-arc-intercept x1 y1 x2 y2
                                                  (/ (+ left right) 2) (+ PADDLE-SY r) (+ r BALL-RADIUS)
                                                  (lambda (a)
