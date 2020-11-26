@@ -25,34 +25,44 @@
 ;;; Constants
 
 ; seconds per clock tick
-(define SPT 0.03)
+(define SPT 0.02)
+; whether to debug or not
+(define DEBUG? #false)
 
 ; width of the canvas in pixels
-(define CNVS-WIDTH 200)
+(define CNVS-WIDTH 240)
 ; height of the canvas in pixels
-(define CNVS-HEIGHT 400)
+(define CNVS-HEIGHT 800)
 
 ; ball radius in pixels
 (define BALL-RADIUS 5)
 ; ball color
 (define BALL-COLOR "red")
+; ball speed
+(define BALL-SPEED 3)
 
 ; wall thickness in pixels
 (define WALL-THICKNESS 0)
 
 ; block width in pixels
-(define BLOCK-WIDTH 60)
+(define BLOCK-WIDTH 30)
 ; block height in pixels
-(define BLOCK-HEIGHT 40)
+(define BLOCK-HEIGHT 20)
 ; block color
 (define BLOCK-COLOR "blue")
+; gap between blocks
+(define GAP 4)
 
 ; paddle vertical position
-(define PADDLE-SY 300)
+(define PADDLE-SY 600)
 ; paddle height
-(define PADDLE-HEIGHT 5)
+(define PADDLE-HEIGHT 10)
 ; paddle color
 (define PADDLE-COLOR "green")
+; paddle speed
+(define PADDLE-SPEED 6)
+; paddle width
+(define PADDLE-WIDTH 80)
 
 ;;; Derived constants
 
@@ -87,7 +97,7 @@
 
 ; a Ball is (make-ball Posn Velo)
 ; interpretation: a ball with position 's' and velocity 'v'
-(define-struct ball [s v])
+(define-struct ball [s v paddle-hit-count])
 
 ; a Wall is (make-wall Posn NonnegativeNumber NonnegativeNumber)
 ; interpretation: a wall at position 's' with width 'w' and height 'h' in pixels
@@ -116,7 +126,7 @@
 (define-struct collision [t n obstacle])
 
 ; a Breakout is (make-breakout Ball List<Block>)
-(define-struct breakout [ball lob paddle])
+(define-struct breakout [ball lob paddle score progression-count])
 
 ;;; Data examples
 
@@ -133,22 +143,62 @@
 ; Blocks
 (define BLOCK0 (make-block (make-posn 0 0)))
 (define BLOCK1 (make-block (make-posn 100 0)))
-(define BLOCK2 (make-block (make-posn 0 100)))
+(define BLOCK2 (make-block (make-posn 0 50)))
+(define BLOCK3 (make-block (make-posn 100 50)))
+(define BLOCK4 (make-block (make-posn 0 100)))
+(define BLOCK5 (make-block (make-posn 100 100)))
 
 ; Paddle
-(define PADDLE0 (make-paddle 100 0 40))
+(define PADDLE0 (make-paddle 100 0 PADDLE-WIDTH))
 
 ; List<Wall>
 (define LOW0 (list LEFT-WALL TOP-WALL RIGHT-WALL BOTTOM-WALL))
 
 ; List<Block>
-(define LOB0 (list BLOCK0 BLOCK1 BLOCK2))
+(define NEW-BLOCKS (list (make-block (make-posn 0 0))
+                         (make-block (make-posn 30 0))
+                         (make-block (make-posn 60 0))
+                         (make-block (make-posn 90 0))
+                         (make-block (make-posn 120 0))
+                         (make-block (make-posn 150 0))
+                         (make-block (make-posn 180 0))
+                         (make-block (make-posn 210 0))
+                         (make-block (make-posn 240 0))))
+(define LOB0 (append NEW-BLOCKS
+                     (map (lambda (a-block)
+                          (make-block (make-posn (posn-x (block-s a-block))
+                                                 (+ BLOCK-HEIGHT GAP (posn-y (block-s a-block))))))
+                          NEW-BLOCKS)
+                     (map (lambda (a-block)
+                          (make-block (make-posn (posn-x (block-s a-block))
+                                                 (+ (* 2 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
+                        NEW-BLOCKS)
+                     (map (lambda (a-block)
+                          (make-block (make-posn (posn-x (block-s a-block))
+                                                 (+ (* 3 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
+                        NEW-BLOCKS)
+                     (map (lambda (a-block)
+                          (make-block (make-posn (posn-x (block-s a-block))
+                                                 (+ (* 7 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
+                        NEW-BLOCKS)
+                     (map (lambda (a-block)
+                          (make-block (make-posn (posn-x (block-s a-block))
+                                                 (+ (* 8 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
+                        NEW-BLOCKS)
+                     (map (lambda (a-block)
+                          (make-block (make-posn (posn-x (block-s a-block))
+                                                 (+ (* 9 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
+                        NEW-BLOCKS)
+                     (map (lambda (a-block)
+                          (make-block (make-posn (posn-x (block-s a-block))
+                                                 (+ (* 10 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
+                        NEW-BLOCKS)))
 
 ; Ball
-(define BALL0 (make-ball (make-posn 130 130) (make-velo -6 -4)))
+(define BALL0 (make-ball (make-posn 50 300) (make-velo (* BALL-SPEED (sqrt 2)) (* BALL-SPEED (sqrt 2))) 0))
 
 ; Breakout
-(define BREAKOUT0 (make-breakout BALL0 LOB0 PADDLE0))
+(define BREAKOUT0 (make-breakout BALL0 LOB0 PADDLE0 0 0))
 
 ;;; Functions
 
@@ -702,6 +752,10 @@
                     (define a-lob (breakout-lob a-brkt))
                     ; current Paddle in 'a-brkt'
                     (define a-paddle (breakout-paddle a-brkt))
+                    ; current score in 'a-brkt'
+                    (define a-score (breakout-score a-brkt))
+                    ; current progression-count in 'a-brkt'
+                    (define a-progression-count (breakout-progression-count a-brkt))
                     ; 'a-ball' initial position
                     (define s0 (ball-s a-ball))
                     ; 'a-ball' velocity
@@ -715,21 +769,187 @@
                     (define s (get-s s0 v delta-t)))
               (cond
                 [(false? a-collision) ; no collisions
-                 (make-breakout (make-ball s v) a-lob a-paddle)]
+                 (make-breakout (make-ball s v (ball-paddle-hit-count a-ball)) a-lob a-paddle a-score a-progression-count)]
                 [else                 ; at least one collision
-                 (local ((define t (collision-t a-collision))
-                         ; 'a-ball' final position (collision point)
-                         (define new-s
-                           (make-posn (+ (posn-x s0) (* t (- (posn-x s) (posn-x s0))))
-                                      (+ (posn-y s0) (* t (- (posn-y s) (posn-y s0))))))
-                         ; 'a-ball' velocity after collision
-                         (define new-v (reflect v (collision-n a-collision))))
-                   (andplay ding
-                            (update/acc (make-breakout (make-ball new-s new-v)
-                                                       (remove-all (collision-obstacle a-collision) a-lob)
-                                                       a-paddle)
-                                        (* delta-t (- 1 t)))))]))))
+                 (andplay ding
+                          (update/acc (make-breakout (update-ball a-ball delta-t a-collision)
+                                                     (update-blocks a-lob a-ball a-progression-count a-collision)
+                                                     (update-paddle a-paddle a-collision)
+                                                     (update-score a-score a-collision)
+                                                     (update-progression-count a-progression-count a-ball a-collision))
+                                      (* delta-t (- 1 (collision-t a-collision)))))]))))
     (update/acc (move-paddle a-brkt0) 1)))
+
+; update-paddle : Paddle Collision -> Paddle
+(define (update-paddle a-paddle a-collision)
+  (cond
+    [(and (equal? TOP-WALL (collision-obstacle a-collision))
+          (= PADDLE-WIDTH (paddle-w a-paddle)))
+     (make-paddle (paddle-sx a-paddle)
+                  (paddle-vx a-paddle)
+                  (/ PADDLE-WIDTH 2))]
+    [else a-paddle]))
+
+(define (update-progression-count a-progression-count a-ball a-collision)
+  (if (and (paddle? (collision-obstacle a-collision))
+           (or (and (<= 55 (ball-paddle-hit-count a-ball))
+                    (= 0 (modulo (ball-paddle-hit-count a-ball) 1)))
+               (and (<= 23 (ball-paddle-hit-count a-ball))
+                    (= 1 (modulo (ball-paddle-hit-count a-ball) 2)))
+               (and (<= 7 (ball-paddle-hit-count a-ball))
+                    (= 3 (modulo (ball-paddle-hit-count a-ball) 4)))
+               (and (<= -1 (ball-paddle-hit-count a-ball))
+                    (= 7 (modulo (ball-paddle-hit-count a-ball) 8)))))
+      (add1 a-progression-count)
+      a-progression-count))
+
+; update-score : NonnegativeInteger Collision -> NonnegativeInteger
+(define (update-score a-score a-collision)
+  (cond
+    [(block? (collision-obstacle a-collision))
+     (+ a-score
+        (local ((define y (posn-y (block-s (collision-obstacle a-collision))))
+                (define (get-y q)
+                  (* CNVS-HEIGHT q)))
+          (cond
+            [(and (<= (get-y 0/8) y)
+                  (< y (get-y 1/8)))
+             7]
+            [(and (<= (get-y 1/8) y)
+                  (< y (get-y 2/8)))
+             5]
+            [(and (<= (get-y 2/8) y)
+                  (< y (get-y 3/8)))
+             3]
+            [(and (<= (get-y 3/8) y)
+                  (< y (get-y 4/8)))
+             1]
+            [(and (<= (get-y 4/8) y)
+                  (< y (get-y 8/8)))
+             1]
+            [else
+             0])))]
+    [else a-score]))
+
+;(define CELL-HEIGHT 20)
+;(define CELL-WIDTH 40)
+;
+;(define (grid->list a-loloc0)
+;  (local ((define (grid->list/acc row a-loloc)
+;            (cond
+;              [(empty? a-loloc) '()]
+;              [else
+;               (append (row->list row (first a-loloc))
+;                       (grid->list/acc (add1 row) (rest a-loloc)))])))
+;    (grid->list/acc 0 a-loloc0)))
+;
+;(define (row->list row a-loc0)
+;  (local (; row->list/acc : NonnegativeInteger List<Cell> -> List<Block>
+;          (define (row->list/acc cell a-loc)
+;            (cond
+;              [(empty? a-loc) '()]
+;              [else
+;               (if (zero? (first a-loc))
+;                   (row->list/acc (add1 cell) (rest a-loc))
+;                   (cons (make-block (make-posn (* cell CELL-WIDTH) (* row CELL-HEIGHT)))
+;                         (row->list/acc (add1 cell) (rest a-loc))))])))
+;    (row->list/acc 0 a-loc0)))
+
+; update-blocks : List<Block> Ball Paddle Collision -> List<Block>
+(define (update-blocks a-lob a-ball a-progression-count a-collision)
+  (local ((define new-lob (remove-all (collision-obstacle a-collision) a-lob))
+          (define progressed-lob
+            (cond
+              [(<= 0 (modulo a-progression-count 8) 3)
+               '()]
+              [else
+               NEW-BLOCKS]))
+          (define (progress a-lob)
+            (make-block (make-posn (posn-x (block-s a-lob))
+                                   (+ BLOCK-HEIGHT GAP (posn-y (block-s a-lob))))))
+          (define (not-low? a-lob)
+            (> PADDLE-SY (posn-y (block-s a-lob))))
+          (define progress?
+            (if (paddle? (collision-obstacle a-collision))
+                (or (and (<= 55 (ball-paddle-hit-count a-ball))
+                         (= 0 (modulo (ball-paddle-hit-count a-ball) 1)))
+                    (and (<= 23 (ball-paddle-hit-count a-ball))
+                         (= 1 (modulo (ball-paddle-hit-count a-ball) 2)))
+                    (and (<= 7 (ball-paddle-hit-count a-ball))
+                         (= 3 (modulo (ball-paddle-hit-count a-ball) 4)))
+                    (and (<= -1 (ball-paddle-hit-count a-ball))
+                         (= 7 (modulo (ball-paddle-hit-count a-ball) 8))))
+                #false)))
+    (cond
+      [progress?
+       (filter not-low? (append progressed-lob
+                                (map progress new-lob)))]
+      [else new-lob])))
+
+; update-ball : Ball NonnegativeNumber Collision -> Ball
+(define (update-ball a-ball delta-t a-collision)
+  (local ((define t (collision-t a-collision))
+          ; 'a-ball' initial position
+          (define s0 (ball-s a-ball))
+          ; 'a-ball' velocity
+          (define v (ball-v a-ball))
+          ; 'a-ball' final position without collisions
+          (define s (get-s s0 v delta-t))
+          ; 'a-ball' final position (collision point)
+          (define new-s
+            (make-posn (+ (posn-x s0) (* t (- (posn-x s) (posn-x s0))))
+                       (+ (posn-y s0) (* t (- (posn-y s) (posn-y s0))))))
+          ; 'a-ball' velocity after collision
+          (define new-v (reflect v (collision-n a-collision)))
+          ; 'a-ball' paddle hit count after collision
+          (define new-paddle-hit-count
+            (cond
+              [(paddle? (collision-obstacle a-collision))
+               (add1 (ball-paddle-hit-count a-ball))]
+              [else (ball-paddle-hit-count a-ball)]))
+          ; normalize : Normal -> Normal
+          ; calculates the normalized vector of 'n'
+          (define (normalize n)
+            (local (; x-component of 'n'
+                    (define nx (velo-x n))
+                    ; y-component of 'n'
+                    (define ny (velo-y n))
+                    ; norm of 'a-normal'
+                    (define norm (sqrt (+ (expt nx 2)
+                                          (expt ny 2)))))
+              (make-velo (/ nx norm) (/ ny norm))))
+          (define mag (sqrt (+ (* (velo-x new-v) (velo-x new-v))
+                               (* (velo-y new-v) (velo-y new-v)))))
+          ; 'a-ball' velocity after collision
+          (define new-new-v
+            (cond
+              [(block? (collision-obstacle a-collision))
+               (local ((define y (posn-y (block-s (collision-obstacle a-collision))))
+                       (define (get-y q)
+                         (* CNVS-HEIGHT q)))
+                 (cond
+                   [(and (<= (get-y 0/8) y)
+                         (< y (get-y 2/8)))
+                    (make-velo (* 3 BALL-SPEED (velo-x (normalize new-v)))
+                               (* 3 BALL-SPEED (velo-y (normalize new-v))))]
+                   [else new-v]))]
+              [(paddle? (collision-obstacle a-collision))
+               (cond
+                 [(and (= 12 new-paddle-hit-count)
+                       (< mag (* 2.5 BALL-SPEED)))
+                  (make-velo (* 2.5 BALL-SPEED (velo-x (normalize new-v)))
+                             (* 2.5 BALL-SPEED (velo-y (normalize new-v))))]
+                 [(and (= 8 new-paddle-hit-count)
+                       (< mag (* 2 BALL-SPEED)))
+                  (make-velo (* 2 BALL-SPEED (velo-x (normalize new-v)))
+                             (* 2 BALL-SPEED (velo-y (normalize new-v))))]
+                 [(and (= 4 new-paddle-hit-count)
+                       (< mag (* 1.5 BALL-SPEED)))
+                  (make-velo (* 1.5 BALL-SPEED (velo-x (normalize new-v)))
+                             (* 1.5 BALL-SPEED (velo-y (normalize new-v))))]
+                 [else new-v])]
+              [else new-v])))
+    (make-ball new-s new-new-v new-paddle-hit-count)))
 
 ; move-paddle : Breakout -> Breakout
 ; a Breakout with a moved paddle
@@ -739,14 +959,22 @@
                             (paddle-vx a-paddle))))
     (make-breakout (breakout-ball a-brkt)
                    (breakout-lob a-brkt)
-                   (make-paddle (max 0 (min (- CNVS-WIDTH (paddle-w a-paddle)) new-sx)) (paddle-vx a-paddle) (paddle-w a-paddle)))))
+                   (make-paddle (max 0 (min (- CNVS-WIDTH (paddle-w a-paddle)) new-sx))
+                                (paddle-vx a-paddle)
+                                (paddle-w a-paddle))
+                   (breakout-score a-brkt)
+                   (breakout-progression-count a-brkt))))
 
 ; set-paddle-vx : Number Breakout -> Breakout
 (define (set-paddle-vx vx a-brkt)
   (local ((define a-paddle (breakout-paddle a-brkt)))
     (make-breakout (breakout-ball a-brkt)
                    (breakout-lob a-brkt)
-                   (make-paddle (paddle-sx a-paddle) vx (paddle-w a-paddle)))))
+                   (make-paddle (paddle-sx a-paddle)
+                                vx
+                                (paddle-w a-paddle))
+                   (breakout-score a-brkt)
+                   (breakout-progression-count a-brkt))))
 
 ;; Rendering
 ;;;;;;;;;;;;;
@@ -800,9 +1028,9 @@
 (define (handle-key a-brkt key)
   (cond
     [(key=? key "left")
-     (set-paddle-vx -10 a-brkt)]
+     (set-paddle-vx (- PADDLE-SPEED) a-brkt)]
     [(key=? key "right")
-     (set-paddle-vx 10 a-brkt)]
+     (set-paddle-vx PADDLE-SPEED a-brkt)]
     [else a-brkt]))
 
 (define (handle-release a-brkt key)
@@ -827,7 +1055,7 @@
        (+ (/ h 2)
           (/ (* w w)
              (* 8 h)))]
-      [(< 0 h w)
+      [(and (< 0 h) (<= h w))
        (/ w 2)]
       [else
        (error "invalid paddle dimensions")])))
@@ -842,6 +1070,7 @@
     [on-tick update SPT]
     [on-key handle-key]
     [on-release handle-release]
+    [state DEBUG?]
     [to-draw render]))
 
 (run BREAKOUT0)
