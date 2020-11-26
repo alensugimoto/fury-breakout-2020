@@ -25,12 +25,12 @@
 ;;; Constants
 
 ; seconds per clock tick
-(define SPT 0.02)
+(define SPT 0.03)
 
 ; width of the canvas in pixels
 (define CNVS-WIDTH 200)
 ; height of the canvas in pixels
-(define CNVS-HEIGHT 200)
+(define CNVS-HEIGHT 400)
 
 ; ball radius in pixels
 (define BALL-RADIUS 5)
@@ -48,7 +48,7 @@
 (define BLOCK-COLOR "blue")
 
 ; paddle vertical position
-(define PADDLE-SY 100)
+(define PADDLE-SY 300)
 ; paddle height
 (define PADDLE-HEIGHT 5)
 ; paddle color
@@ -152,9 +152,9 @@
 
 ;;; Functions
 
-; obstacles : Breakout -> List<BallObstacle>
+; breakout-loo : Breakout -> List<BallObstacle>
 ; a list of BallObstacles in 'a-brkt'
-(define (obstacles a-brkt)
+(define (breakout-loo a-brkt)
   (cons (breakout-paddle a-brkt)
         (append (breakout-lob a-brkt)
                 LOW0)))
@@ -707,7 +707,7 @@
                     ; 'a-ball' velocity
                     (define v (ball-v a-ball))
                     ; a list of BallObstacles
-                    (define a-loo (obstacles a-brkt))
+                    (define a-loo (breakout-loo a-brkt))
                     ; a list of the next simultaneously-occurring Collisions
                     ;    between 'a-ball' and a BallObstacle in 'delta-t' ticks
                     (define a-collision (next-ball-collision a-ball a-loo delta-t))
@@ -729,7 +729,24 @@
                                                        (remove-all (collision-obstacle a-collision) a-lob)
                                                        a-paddle)
                                         (* delta-t (- 1 t)))))]))))
-    (update/acc a-brkt0 1)))
+    (update/acc (move-paddle a-brkt0) 1)))
+
+; move-paddle : Breakout -> Breakout
+; a Breakout with a moved paddle
+(define (move-paddle a-brkt)
+  (local ((define a-paddle (breakout-paddle a-brkt))
+          (define new-sx (+ (paddle-sx a-paddle)
+                            (paddle-vx a-paddle))))
+    (make-breakout (breakout-ball a-brkt)
+                   (breakout-lob a-brkt)
+                   (make-paddle (max 0 (min (- CNVS-WIDTH (paddle-w a-paddle)) new-sx)) (paddle-vx a-paddle) (paddle-w a-paddle)))))
+
+; set-paddle-vx : Number Breakout -> Breakout
+(define (set-paddle-vx vx a-brkt)
+  (local ((define a-paddle (breakout-paddle a-brkt)))
+    (make-breakout (breakout-ball a-brkt)
+                   (breakout-lob a-brkt)
+                   (make-paddle (paddle-sx a-paddle) vx (paddle-w a-paddle)))))
 
 ;; Rendering
 ;;;;;;;;;;;;;
@@ -777,6 +794,24 @@
                (+ PADDLE-SY (/ PADDLE-HEIGHT 2))
                bg-img))
 
+;; Key handling
+;;;;;;;;;;;;;;;;
+
+(define (handle-key a-brkt key)
+  (cond
+    [(key=? key "left")
+     (set-paddle-vx -10 a-brkt)]
+    [(key=? key "right")
+     (set-paddle-vx 10 a-brkt)]
+    [else a-brkt]))
+
+(define (handle-release a-brkt key)
+  (cond
+    [(or (key=? key "left")
+         (key=? key "right"))
+     (set-paddle-vx 0 a-brkt)]
+    [else a-brkt]))
+
 ;; Helpers
 ;;;;;;;;;;;
 
@@ -805,6 +840,8 @@
 (define (run a-brkt)
   (big-bang a-brkt
     [on-tick update SPT]
+    [on-key handle-key]
+    [on-release handle-release]
     [to-draw render]))
 
 (run BREAKOUT0)
