@@ -30,49 +30,108 @@
 (define DEBUG? #false)
 
 ; width of the canvas in pixels
-(define CNVS-WIDTH 240)
+(define CNVS-WIDTH 600)
 ; height of the canvas in pixels
 (define CNVS-HEIGHT 800)
+; canvas frame thickness in pixels
+(define CNVS-FRM-THICKNESS 10)
+
+; background color
+(define BG-COLOR "black")
+
+; playing field transparency
+(define FIELD-TRANSPARENCY 30)
+; number of columns in playing field
+(define COLNUM 13)
+; number of rows in playing field
+(define ROWNUM 32)
+; playing field spacing in pixels
+(define SPACING 4)
 
 ; ball radius in pixels
 (define BALL-RADIUS 5)
 ; ball color
-(define BALL-COLOR "red")
+(define BALL-COLOR "white")
 ; ball speed
 (define BALL-SPEED 3)
 
 ; wall thickness in pixels
-(define WALL-THICKNESS 0)
+(define WALL-THICKNESS 20)
+; wall color
+(define WALL-COLOR "silver")
 
-; block width in pixels
-(define BLOCK-WIDTH 30)
-; block height in pixels
-(define BLOCK-HEIGHT 20)
 ; block color
 (define BLOCK-COLOR "blue")
-; gap between blocks
-(define GAP 4)
 
-; paddle vertical position
-(define PADDLE-SY 600)
-; paddle height
-(define PADDLE-HEIGHT 10)
+; paddle row number
+(define PADDLE-ROW 28)
 ; paddle color
-(define PADDLE-COLOR "green")
+(define PADDLE-COLOR "lightblue")
 ; paddle speed
 (define PADDLE-SPEED 8)
-; paddle width
-(define PADDLE-WIDTH 80)
 
 ;;; Derived constants
 
+; playing field width in pixels
+(define FIELD-WIDTH (- CNVS-WIDTH (* 2 (+ WALL-THICKNESS CNVS-FRM-THICKNESS))))
+; playing field height in pixels
+(define FIELD-HEIGHT (- CNVS-HEIGHT WALL-THICKNESS (* 2 CNVS-FRM-THICKNESS)))
+; playing field image
+(define FIELD-IMG
+  (overlay/align
+    "center" "top"
+    (above (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "blue")
+           (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "orange")
+           (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "green")
+           (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "yellow"))
+    (rectangle FIELD-WIDTH FIELD-HEIGHT "solid" BG-COLOR)))
+
+; wall width in pixels
+(define WALL-WIDTH (- CNVS-WIDTH (* 2 CNVS-FRM-THICKNESS)))
+; wall height in pixels
+(define WALL-HEIGHT (- CNVS-HEIGHT (* 2 CNVS-FRM-THICKNESS)))
+; wall image
+(define WALL-IMG (rectangle WALL-WIDTH WALL-HEIGHT "solid" WALL-COLOR))
+
+; canvas frame image
+(define CNVS-FRM-IMG (rectangle CNVS-WIDTH CNVS-HEIGHT "solid" BG-COLOR))
+
 ; background image
-(define BG-IMG (empty-scene CNVS-WIDTH CNVS-HEIGHT))
+(define BG-IMG
+  (overlay
+   (overlay/align "center" "bottom" FIELD-IMG WALL-IMG)
+   CNVS-FRM-IMG))
+
 ; ball image
 (define BALL-IMG (circle BALL-RADIUS "solid" BALL-COLOR))
+
+; table width in pixels
+(define TABLE-WIDTH (- FIELD-WIDTH SPACING))
+; table height in pixels
+(define TABLE-HEIGHT (- FIELD-HEIGHT SPACING))
+; cell width in pixels
+(define CELL-WIDTH (/ TABLE-WIDTH COLNUM))
+; cell height in pixels
+(define CELL-HEIGHT (/ TABLE-HEIGHT ROWNUM))
+; block width in pixels
+(define BLOCK-WIDTH (- CELL-WIDTH SPACING))
+; block height in pixels
+(define BLOCK-HEIGHT (- CELL-HEIGHT SPACING))
 ; block image
 (define BLOCK-IMG (rectangle BLOCK-WIDTH BLOCK-HEIGHT "solid" BLOCK-COLOR))
-        
+
+; paddle height
+(define PADDLE-HEIGHT BLOCK-HEIGHT)
+; paddle width
+(define PADDLE-WIDTH (* 4 PADDLE-HEIGHT))
+; paddle vertical position
+(define PADDLE-SY
+  (+ CNVS-FRM-THICKNESS
+     WALL-THICKNESS
+     SPACING
+     (* (+ BLOCK-HEIGHT SPACING)
+        PADDLE-ROW)))
+
 ;;; Data types
 
 ; a NonnegativeNumber is a Number greater than or equal to zero
@@ -103,9 +162,9 @@
 ; interpretation: a wall at position 's' with width 'w' and height 'h' in pixels
 (define-struct wall [s w h])
 
-; a Block is (make-block Posn)
-; interpretation: a block at position 's'
-(define-struct block [s])
+; a Block is (make-block NonnegativeInteger NonnegativeInteger)
+; interpretation: a block in row number 'row' and column number 'col'
+(define-struct block [col row])
 
 ; a Paddle is (make-paddle Number Number NonnegativeNumber)
 ; interpretation: a paddle with horizontal position 'sx',
@@ -132,19 +191,11 @@
 
 ; Walls
 (define LEFT-WALL
-  (make-wall (make-posn 0 0) WALL-THICKNESS CNVS-HEIGHT))
+  (make-wall (make-posn CNVS-FRM-THICKNESS CNVS-FRM-THICKNESS) WALL-THICKNESS WALL-HEIGHT))
 (define TOP-WALL
-  (make-wall (make-posn 0 0) CNVS-WIDTH WALL-THICKNESS))
+  (make-wall (make-posn CNVS-FRM-THICKNESS CNVS-FRM-THICKNESS) WALL-WIDTH WALL-THICKNESS))
 (define RIGHT-WALL
-  (make-wall (make-posn (- CNVS-WIDTH WALL-THICKNESS) 0) WALL-THICKNESS CNVS-HEIGHT))
-
-; Blocks
-(define BLOCK0 (make-block (make-posn 0 0)))
-(define BLOCK1 (make-block (make-posn 100 0)))
-(define BLOCK2 (make-block (make-posn 0 50)))
-(define BLOCK3 (make-block (make-posn 100 50)))
-(define BLOCK4 (make-block (make-posn 0 100)))
-(define BLOCK5 (make-block (make-posn 100 100)))
+  (make-wall (make-posn (- CNVS-WIDTH WALL-THICKNESS CNVS-FRM-THICKNESS) CNVS-FRM-THICKNESS) WALL-THICKNESS WALL-HEIGHT))
 
 ; Paddle
 (define PADDLE0 (make-paddle 100 0 PADDLE-WIDTH))
@@ -153,52 +204,39 @@
 (define LOW0 (list LEFT-WALL TOP-WALL RIGHT-WALL))
 
 ; List<Block>
-(define NEW-BLOCKS (list (make-block (make-posn 0 0))
-                         (make-block (make-posn 30 0))
-                         (make-block (make-posn 60 0))
-                         (make-block (make-posn 90 0))
-                         (make-block (make-posn 120 0))
-                         (make-block (make-posn 150 0))
-                         (make-block (make-posn 180 0))
-                         (make-block (make-posn 210 0))
-                         (make-block (make-posn 240 0))))
+(define NEW-BLOCKS (build-list COLNUM (lambda (n) (make-block n 0))))
 (define LOB0 (append NEW-BLOCKS
-                     (map (lambda (a-block)
-                          (make-block (make-posn (posn-x (block-s a-block))
-                                                 (+ BLOCK-HEIGHT GAP (posn-y (block-s a-block))))))
-                          NEW-BLOCKS)
-                     (map (lambda (a-block)
-                          (make-block (make-posn (posn-x (block-s a-block))
-                                                 (+ (* 2 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
-                        NEW-BLOCKS)
-                     (map (lambda (a-block)
-                          (make-block (make-posn (posn-x (block-s a-block))
-                                                 (+ (* 3 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
-                        NEW-BLOCKS)
-                     (map (lambda (a-block)
-                          (make-block (make-posn (posn-x (block-s a-block))
-                                                 (+ (* 7 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
-                        NEW-BLOCKS)
-                     (map (lambda (a-block)
-                          (make-block (make-posn (posn-x (block-s a-block))
-                                                 (+ (* 8 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
-                        NEW-BLOCKS)
-                     (map (lambda (a-block)
-                          (make-block (make-posn (posn-x (block-s a-block))
-                                                 (+ (* 9 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
-                        NEW-BLOCKS)
-                     (map (lambda (a-block)
-                          (make-block (make-posn (posn-x (block-s a-block))
-                                                 (+ (* 10 (+ BLOCK-HEIGHT GAP)) (posn-y (block-s a-block))))))
-                        NEW-BLOCKS)))
+                     (build-list COLNUM (lambda (n) (make-block n 1)))
+                     (build-list COLNUM (lambda (n) (make-block n 2)))
+                     (build-list COLNUM (lambda (n) (make-block n 3)))
+                     (build-list COLNUM (lambda (n) (make-block n 8)))
+                     (build-list COLNUM (lambda (n) (make-block n 9)))
+                     (build-list COLNUM (lambda (n) (make-block n 10)))
+                     (build-list COLNUM (lambda (n) (make-block n 11)))))
 
 ; Ball
-(define BALL0 (make-ball (make-posn 50 300) (make-velo (* BALL-SPEED (sqrt 2)) (* BALL-SPEED (sqrt 2))) 0))
+(define BALL0 (make-ball (make-posn (/ CNVS-WIDTH 2) (* CNVS-HEIGHT 6/8))
+                         (make-velo (* BALL-SPEED (- (sqrt 2))) (* BALL-SPEED (- (sqrt 2))))
+                         0))
 
 ; Breakout
 (define BREAKOUT0 (make-breakout BALL0 LOB0 PADDLE0 0 1 0))
 
 ;;; Functions
+
+(define (block-sx a-block)
+  (+ CNVS-FRM-THICKNESS
+     WALL-THICKNESS
+     SPACING
+     (* (+ BLOCK-WIDTH SPACING)
+        (block-col a-block))))
+
+(define (block-sy a-block)
+  (+ CNVS-FRM-THICKNESS
+     WALL-THICKNESS
+     SPACING
+     (* (+ BLOCK-HEIGHT SPACING)
+        (block-row a-block))))
 
 ; breakout-loo : Breakout -> List<BallObstacle>
 ; a list of BallObstacles in 'a-brkt'
@@ -230,11 +268,11 @@
                              (+ (posn-y (wall-s a-obst))
                                 (wall-h a-obst)))]
               [(block? a-obst)
-               (may-collide? (posn-x (block-s a-obst))
-                             (posn-y (block-s a-obst))
-                             (+ (posn-x (block-s a-obst))
+               (may-collide? (block-sx a-obst)
+                             (block-sy a-obst)
+                             (+ (block-sx a-obst)
                                 BLOCK-WIDTH)
-                             (+ (posn-y (block-s a-obst))
+                             (+ (block-sy a-obst)
                                 BLOCK-HEIGHT))]
               [(paddle? a-obst)
                (may-collide? (paddle-sx a-obst)
@@ -261,11 +299,11 @@
                            a-obst)]
     [(block? a-obst)
      (line-rrect-collision x1 y1 x2 y2
-                           (posn-x (block-s a-obst))
-                           (posn-y (block-s a-obst))
-                           (+ (posn-x (block-s a-obst))
+                           (block-sx a-obst)
+                           (block-sy a-obst)
+                           (+ (block-sx a-obst)
                               BLOCK-WIDTH)
-                           (+ (posn-y (block-s a-obst))
+                           (+ (block-sy a-obst)
                               BLOCK-HEIGHT)
                            a-obst)]
     [(paddle? a-obst)
@@ -797,7 +835,7 @@
 
 (define (reset-blocks a-lob)
   (filter (lambda (a-block)
-            (> (+ PADDLE-SY (* PADDLE-HEIGHT 4)) (posn-y (block-s a-block))))
+            (> (- PADDLE-ROW 4) (block-row a-block)))
           a-lob))
 
 (define (reset-paddle a-paddle)
@@ -833,27 +871,18 @@
   (cond
     [(block? (collision-obstacle a-collision))
      (+ a-score
-        (local ((define y (posn-y (block-s (collision-obstacle a-collision))))
-                (define (get-y q)
-                  (* CNVS-HEIGHT q)))
+        (local ((define a-block (collision-obstacle a-collision)))
           (cond
-            [(and (<= (get-y 0/8) y)
-                  (< y (get-y 1/8)))
+            [(<= 0 (block-row a-block) 3)
              7]
-            [(and (<= (get-y 1/8) y)
-                  (< y (get-y 2/8)))
+            [(<= 4 (block-row a-block) 7)
              5]
-            [(and (<= (get-y 2/8) y)
-                  (< y (get-y 3/8)))
+            [(<= 8 (block-row a-block) 11)
              3]
-            [(and (<= (get-y 3/8) y)
-                  (< y (get-y 4/8)))
-             1]
-            [(and (<= (get-y 4/8) y)
-                  (< y (get-y 8/8)))
+            [(<= 12 (block-row a-block) 15)
              1]
             [else
-             0])))]
+             1])))]
     [else a-score]))
 
 ;(define CELL-HEIGHT 20)
@@ -889,11 +918,11 @@
                '()]
               [else
                NEW-BLOCKS]))
-          (define (progress a-lob)
-            (make-block (make-posn (posn-x (block-s a-lob))
-                                   (+ BLOCK-HEIGHT GAP (posn-y (block-s a-lob))))))
-          (define (not-low? a-lob)
-            (> PADDLE-SY (posn-y (block-s a-lob))))
+          (define (progress a-block)
+            (make-block (block-col a-block)
+                        (add1 (block-row a-block))))
+          (define (not-low? a-block)
+            (> (- PADDLE-ROW 1) (block-row a-block)))
           (define progress?
             (if (paddle? (collision-obstacle a-collision))
                 (or (and (<= 55 (ball-paddle-hit-count a-ball))
@@ -949,12 +978,9 @@
           (define new-new-v
             (cond
               [(block? (collision-obstacle a-collision))
-               (local ((define y (posn-y (block-s (collision-obstacle a-collision))))
-                       (define (get-y q)
-                         (* CNVS-HEIGHT q)))
+               (local ((define a-block (collision-obstacle a-collision)))
                  (cond
-                   [(and (<= (get-y 0/8) y)
-                         (< y (get-y 2/8)))
+                   [(<= 0 (block-row a-block) 7)
                     (make-velo (* 3 BALL-SPEED (velo-x (normalize new-v)))
                                (* 3 BALL-SPEED (velo-y (normalize new-v))))]
                    [else new-v]))]
@@ -984,7 +1010,13 @@
                             (paddle-vx a-paddle))))
     (make-breakout (breakout-ball a-brkt)
                    (breakout-lob a-brkt)
-                   (make-paddle (max 0 (min (- CNVS-WIDTH (paddle-w a-paddle)) new-sx))
+                   (make-paddle (max (+ CNVS-FRM-THICKNESS
+                                        WALL-THICKNESS)
+                                     (min (- CNVS-WIDTH
+                                             CNVS-FRM-THICKNESS
+                                             WALL-THICKNESS
+                                             (paddle-w a-paddle))
+                                          new-sx))
                                 (paddle-vx a-paddle)
                                 (paddle-w a-paddle))
                    (breakout-score a-brkt)
@@ -1022,11 +1054,23 @@
   (cond
     [(empty? a-lob) bg-img]
     [else
-     (local (; position of first Block in 'a-lob'
-             (define s (block-s (first a-lob))))
-       (place-image BLOCK-IMG
-                    (+ (posn-x s) (/ BLOCK-WIDTH 2))
-                    (+ (posn-y s) (/ BLOCK-HEIGHT 2))
+     (local (; first Block in 'a-lob'
+             (define a-block (first a-lob)))
+       (place-image (rectangle
+                     BLOCK-WIDTH BLOCK-HEIGHT "solid"
+                     (cond
+                       [(<= 0 (block-row a-block) 3)
+                        "blue"]
+                       [(<= 4 (block-row a-block) 7)
+                        "orange"]
+                       [(<= 8 (block-row a-block) 11)
+                        "green"]
+                       [(<= 12 (block-row a-block) 15)
+                        "yellow"]
+                       [else
+                        "white"]))
+                    (+ (block-sx a-block) (/ BLOCK-WIDTH 2))
+                    (+ (block-sy a-block) (/ BLOCK-HEIGHT 2))
                     (render-blocks (rest a-lob) bg-img)))]))
 
 ; render-ball : Ball Image -> Image
@@ -1052,15 +1096,15 @@
                bg-img))
 
 (define (render-score a-score bg-img)
-  (place-image (text (number->string a-score) 24 "black")
+  (place-image (text (number->string a-score) 30 "white")
                (* CNVS-WIDTH 1/4)
-               (* CNVS-HEIGHT 7/8)
+               (* CNVS-HEIGHT 15/16)
                bg-img))
 
 (define (render-turnnum a-turnnum bg-img)
-  (place-image (text (number->string a-turnnum) 24 "black")
+  (place-image (text (number->string a-turnnum) 30 "white")
                (* CNVS-WIDTH 1/2)
-               (* CNVS-HEIGHT 7/8)
+               (* CNVS-HEIGHT 15/16)
                bg-img))
 
 ;; Key handling
