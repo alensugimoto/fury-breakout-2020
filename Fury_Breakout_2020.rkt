@@ -60,7 +60,7 @@
 ; paddle color
 (define PADDLE-COLOR "green")
 ; paddle speed
-(define PADDLE-SPEED 6)
+(define PADDLE-SPEED 8)
 ; paddle width
 (define PADDLE-WIDTH 80)
 
@@ -126,7 +126,7 @@
 (define-struct collision [t n obstacle])
 
 ; a Breakout is (make-breakout Ball List<Block>)
-(define-struct breakout [ball lob paddle score progression-count])
+(define-struct breakout [ball lob paddle score turnnum progression-count])
 
 ;;; Data examples
 
@@ -137,8 +137,6 @@
   (make-wall (make-posn 0 0) CNVS-WIDTH WALL-THICKNESS))
 (define RIGHT-WALL
   (make-wall (make-posn (- CNVS-WIDTH WALL-THICKNESS) 0) WALL-THICKNESS CNVS-HEIGHT))
-(define BOTTOM-WALL
-  (make-wall (make-posn 0 (- CNVS-HEIGHT WALL-THICKNESS)) CNVS-WIDTH WALL-THICKNESS))
 
 ; Blocks
 (define BLOCK0 (make-block (make-posn 0 0)))
@@ -152,7 +150,7 @@
 (define PADDLE0 (make-paddle 100 0 PADDLE-WIDTH))
 
 ; List<Wall>
-(define LOW0 (list LEFT-WALL TOP-WALL RIGHT-WALL BOTTOM-WALL))
+(define LOW0 (list LEFT-WALL TOP-WALL RIGHT-WALL))
 
 ; List<Block>
 (define NEW-BLOCKS (list (make-block (make-posn 0 0))
@@ -198,7 +196,7 @@
 (define BALL0 (make-ball (make-posn 50 300) (make-velo (* BALL-SPEED (sqrt 2)) (* BALL-SPEED (sqrt 2))) 0))
 
 ; Breakout
-(define BREAKOUT0 (make-breakout BALL0 LOB0 PADDLE0 0 0))
+(define BREAKOUT0 (make-breakout BALL0 LOB0 PADDLE0 0 1 0))
 
 ;;; Functions
 
@@ -754,6 +752,8 @@
                     (define a-paddle (breakout-paddle a-brkt))
                     ; current score in 'a-brkt'
                     (define a-score (breakout-score a-brkt))
+                    ; current turn number in 'a-brkt'
+                    (define a-turnnum (breakout-turnnum a-brkt))
                     ; current progression-count in 'a-brkt'
                     (define a-progression-count (breakout-progression-count a-brkt))
                     ; 'a-ball' initial position
@@ -769,16 +769,41 @@
                     (define s (get-s s0 v delta-t)))
               (cond
                 [(false? a-collision) ; no collisions
-                 (make-breakout (make-ball s v (ball-paddle-hit-count a-ball)) a-lob a-paddle a-score a-progression-count)]
+                 (if (or (< CNVS-HEIGHT (posn-y s))
+                         (< CNVS-WIDTH (posn-x s))
+                         (< (posn-y s) (* -2 BALL-RADIUS))
+                         (< (posn-x s) (* -2 BALL-RADIUS)))
+                     (make-breakout (reset-ball a-ball)
+                                    (reset-blocks a-lob)
+                                    (reset-paddle a-paddle)
+                                    a-score
+                                    (add1 a-turnnum)
+                                    a-progression-count)
+                     (make-breakout (make-ball s v (ball-paddle-hit-count a-ball))
+                                    a-lob a-paddle a-score a-turnnum a-progression-count))]
                 [else                 ; at least one collision
                  (andplay ding
                           (update/acc (make-breakout (update-ball a-ball delta-t a-collision)
                                                      (update-blocks a-lob a-ball a-progression-count a-collision)
                                                      (update-paddle a-paddle a-collision)
                                                      (update-score a-score a-collision)
+                                                     a-turnnum
                                                      (update-progression-count a-progression-count a-ball a-collision))
                                       (* delta-t (- 1 (collision-t a-collision)))))]))))
     (update/acc (move-paddle a-brkt0) 1)))
+
+(define (reset-ball a-ball)
+  BALL0)
+
+(define (reset-blocks a-lob)
+  (filter (lambda (a-block)
+            (> (+ PADDLE-SY (* PADDLE-HEIGHT 4)) (posn-y (block-s a-block))))
+          a-lob))
+
+(define (reset-paddle a-paddle)
+  (make-paddle (paddle-sx a-paddle)
+               (paddle-vx a-paddle)
+               PADDLE-WIDTH))
 
 ; update-paddle : Paddle Collision -> Paddle
 (define (update-paddle a-paddle a-collision)
@@ -963,6 +988,7 @@
                                 (paddle-vx a-paddle)
                                 (paddle-w a-paddle))
                    (breakout-score a-brkt)
+                   (breakout-turnnum a-brkt)
                    (breakout-progression-count a-brkt))))
 
 ; set-paddle-vx : Number Breakout -> Breakout
@@ -974,6 +1000,7 @@
                                 vx
                                 (paddle-w a-paddle))
                    (breakout-score a-brkt)
+                   (breakout-turnnum a-brkt)
                    (breakout-progression-count a-brkt))))
 
 ;; Rendering
@@ -985,7 +1012,9 @@
   (render-ball (breakout-ball a-brkt)
                (render-paddle (breakout-paddle a-brkt)
                               (render-blocks (breakout-lob a-brkt)
-                                             BG-IMG))))
+                                             (render-score (breakout-score a-brkt)
+                                                           (render-turnnum (breakout-turnnum a-brkt)
+                                                                           BG-IMG))))))
 
 ; render-blocks : List<Block> Image -> Image
 ; an 'bg-img' with Blocks 'a-lob' placed on it
@@ -1020,6 +1049,18 @@
                                    PADDLE-COLOR))
                (+ (paddle-sx a-paddle) (/ (paddle-w a-paddle) 2))
                (+ PADDLE-SY (/ PADDLE-HEIGHT 2))
+               bg-img))
+
+(define (render-score a-score bg-img)
+  (place-image (text (number->string a-score) 24 "black")
+               (* CNVS-WIDTH 1/4)
+               (* CNVS-HEIGHT 7/8)
+               bg-img))
+
+(define (render-turnnum a-turnnum bg-img)
+  (place-image (text (number->string a-turnnum) 24 "black")
+               (* CNVS-WIDTH 1/2)
+               (* CNVS-HEIGHT 7/8)
                bg-img))
 
 ;; Key handling
