@@ -3,37 +3,115 @@
 #reader(lib "htdp-advanced-reader.ss" "lang")((modname Fury_Breakout_2020) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #t #t none #f () #f)))
 
 ;;; Libraries
+;;;;;;;;;;;;;;
 
 ; a library for drawing images
 (require 2htdp/image)
 ; a library for making an interactive program
 (require 2htdp/universe)
-; a library for creating sounds
-(require rsound)
+
+;;; Data types
+;;;;;;;;;;;;;;;
+
+; a NonnegativeNumber is a Number greater than or equal to zero
+; interpretation: a non-negative number
+
+; a NonnegativeInteger is one of the following:
+; - 0                         ; zero
+; - (add1 NonnegativeInteger) : a positive Integer
+; interpretation: a non-negative integer
+
+; an Angle is between (- pi) exclusive and pi inclusive
+; interpretation: an angle in radians
+
+; a Brick is (make-brick NonnegativeInteger NonnegativeInteger)
+; interpretation: a brick in row number 'row' and column number 'col'
+(define-struct brick [col row])
+
+; a Paddle is (make-paddle x row speed dir width)
+;    where x     : Number
+;          row   : NonnegativeInteger
+;          speed : NonnegativeNumber
+;          dir   : Angle
+;          width : NonnegativeNumber
+; interpretation: a paddle with horizontal position 'x' in pixels,
+;                 vertical position 'row' in rows,
+;                 speed 'speed' in pixels per second,
+;                 direction 'dir', and width 'width' in pixels
+(define-struct paddle [x row speed dir width])
+
+; a Backwall is (make-backwall)
+; interpretation: a wall stretched over row number 0
+(define-struct backwall [])
+
+; a VObject is one of the following:
+; - a Brick
+; - a Paddle
+; - a Backwall
+; interpretation: an object that can rebound a ball vertically
+
+; a Ball is (make-ball x y speed dir last-vobject paddle-hit-count)
+;    where x, y             : Number
+;          speed            : NonnegativeNumber
+;          dir              : Angle
+;          last-vobject     : VObject
+;          paddle-hit-count : NonnegativeInteger
+; interpretation: a ball, which most recently collided with 'last-vobject',
+;                 with position ('x', 'y') in pixels,
+;                 speed 'speed' in pixels per second,
+;                 direction 'dir', and a paddle hit count of 'paddle-hit-count'
+(define-struct ball [x y speed dir last-vobject paddle-hit-count])
+
+; a CollisionGeometry is (make-collision-geometry Number Number Number Number)
+; interpretation: a rectangle with top left corner positioned at ('left', 'top')
+;                 and bottom right corner positioned at ('right', 'bottom') in pixels
+(define-struct collision-geometry [left top right bottom])
+
+; a ColorOverlay is (make color-overlay Color NonnegativeInteger NonnegativeInteger)
+; interpretation: a color overlay applied over rows 'i' inclusive to 'j' exclusive
+(define-struct color-overlay [c i j])
+
+; a Breakout is (make-breakout List<Ball> List<Brick> List<Paddle>)
+; interpretation: a breakout game with Balls 'loba',
+;                 Bricks 'lobr', and Paddles 'lop'
+(define-struct breakout [loba lobr lop])
 
 ;;; Constants
+;;;;;;;;;;;;;;
 
 ; seconds per clock tick
-(define SPT 1)
+(define SPT 1/60)
 ; whether to debug or not
 (define DEBUG? #false)
-
-; background color
-(define BG-COLOR "black")
+; bit width in pixels
+(define BIT-WIDTH 3)
 
 ; character block length in pixels
-(define CHAR-BLK-LENGTH 24)
+(define CHAR-BLK-LENGTH (* 8 BIT-WIDTH))
 
 ; number of columns in playfield
 (define PF-COL-COUNT 28)
 ; number of rows in playfield
 (define PF-ROW-COUNT 32)
 
+; background color
+(define BG-COLOR "black")
+; foreground colors
+(define FG-COLORS
+  (list (make-color-overlay "blue"   0 5)
+        (make-color-overlay "orange" 5 9)
+        (make-color-overlay "green"  9 13)
+        (make-color-overlay "yellow" 13 29)
+        (make-color-overlay "blue"   29 30)
+        (make-color-overlay "white"  30 PF-ROW-COUNT)))
+
 ; playfield spacing in pixels
 (define PF-SPACING (/ CHAR-BLK-LENGTH 4))
 
 ; ball radius in pixels
-(define BALL-RADIUS (/ PF-SPACING 2))
+(define BALL-RADIUS (* PF-SPACING 3/4))
+
+;;; Derived constants
 
 ; brick width in pixels
 (define BRICK-WIDTH (* CHAR-BLK-LENGTH 2))
@@ -52,82 +130,91 @@
 ; playfield height in pixels
 (define PF-HEIGHT (* CHAR-BLK-LENGTH PF-ROW-COUNT))
 
-; playfield image
-(define PF-IMG (rectangle PF-WIDTH PF-HEIGHT "solid" BG-COLOR))
+; ball minimum position on the x-coordinate
+(define BALL-MIN-X (+ WALL-THICKNESS (/ PF-SPACING 2) BALL-RADIUS))
+; ball maximum position on the x-coordinate
+(define BALL-MAX-X (- PF-WIDTH BALL-MIN-X))
+; ball minimum position on the y-coordinate
+(define BALL-MIN-Y (- BRICK-HEIGHT (/ IBRICK-HEIGHT 2)))
+; ball maximum position on the y-coordinate
+(define BALL-MAX-Y (- PF-HEIGHT CHAR-BLK-LENGTH BALL-RADIUS))
 
-; backwall length
-(define BACKWALL-LENGTH (- PF-WIDTH PF-SPACING))
-; backwall image
-(define BACKWALL-IMG (rectangle BACKWALL-LENGTH WALL-THICKNESS "solid" "blue"))
-; sidewall image
-(define SIDEWALL-IMG
-  (above (rectangle WALL-THICKNESS (+ (/ PF-SPACING 2)
-                                      (* 4 BRICK-HEIGHT)) "solid" "blue")
-         (rectangle WALL-THICKNESS (* 4 BRICK-HEIGHT) "solid" "orange")
-         (rectangle WALL-THICKNESS (* 4 BRICK-HEIGHT) "solid" "green")
-         (rectangle WALL-THICKNESS (* 16 BRICK-HEIGHT) "solid" "yellow")
-         (rectangle WALL-THICKNESS BRICK-HEIGHT "solid" "blue")
-         (rectangle WALL-THICKNESS (- (* 2 BRICK-HEIGHT)
-                                      (/ PF-SPACING 2)) "solid" "white")))
+;;; Data examples
+;;;;;;;;;;;;;;;;;;
+
+; Backwall
+(define BACKWALL (make-backwall))
+
+;;; Images
+;;;;;;;;;;;
 
 ; background image
-(define BG-IMG
-  (overlay (above BACKWALL-IMG
-                  (beside SIDEWALL-IMG
-                          (rectangle (- BACKWALL-LENGTH (* 2 WALL-THICKNESS))
-                                     (image-height SIDEWALL-IMG)
-                                     "solid" "transparent")
-                          SIDEWALL-IMG))
-           PF-IMG))
+(define BG-IMG (rectangle PF-WIDTH PF-HEIGHT "solid" BG-COLOR))
+; backwall length
+(define BACKWALL-LENGTH (- PF-WIDTH PF-SPACING (* 2 WALL-THICKNESS)))
+; backwall image
+(define BACKWALL-IMG (rectangle BACKWALL-LENGTH
+                                WALL-THICKNESS
+                                "solid"
+                                (color-overlay-c (first FG-COLORS))))
+; sidewall image
+(define SIDEWALL-IMG
+  (local ((define (generate-sidewall-img/acc loc img)
+            (cond
+              [(empty? loc) img]
+              [else
+               (local ((define a-color-overlay (first loc))
+                       (define a-c (color-overlay-c a-color-overlay))
+                       (define a-i (color-overlay-i a-color-overlay))
+                       (define a-j (color-overlay-j a-color-overlay)))
+                 (above img
+                        (generate-sidewall-img/acc
+                         (rest loc)
+                         (rectangle WALL-THICKNESS
+                                    (if (zero? a-i)
+                                        (- (* (- a-j a-i) BRICK-HEIGHT) (/ PF-SPACING 2))
+                                        (* (- a-j a-i) BRICK-HEIGHT))
+                                    "solid" a-c))))])))
+    (generate-sidewall-img/acc FG-COLORS empty-image)))
+; playfield image
+(define PF-IMG
+  (overlay/align
+   "center" "bottom"
+   (beside SIDEWALL-IMG
+           (overlay/align
+            "center" "top"
+            BACKWALL-IMG
+            (rectangle BACKWALL-LENGTH
+                       (image-height SIDEWALL-IMG)
+                       "solid" "transparent"))
+           SIDEWALL-IMG)
+   BG-IMG))
 
-;;; Data types
+;;; Auxiliary functions
+;;;;;;;;;;;;;;;;;;;;;;;;
 
-; a NonnegativeNumber is a Number greater than or equal to zero
-; interpretation: a non-negative number
-
-; a NonnegativeInteger is one of the following:
-; - 0                         ; zero
-; - (add1 NonnegativeInteger) : a positive Integer
-; interpretation: a non-negative integer
-
-; a Ball is (make-ball x y speed dir lastbrick paddle-hit-count)
-; interpretation: a ball with position 's' and velocity 'v'
-(define-struct ball [x y speed dir lastbrick paddle-hit-count])
-
-; a Block is (make-block NonnegativeInteger NonnegativeInteger)
-; interpretation: a block in row number 'row' and column number 'col'
-(define-struct brick [col row])
-
-; a Paddle is (make-paddle Number Number NonnegativeNumber)
-; interpretation: a paddle with horizontal position 'sx',
-;                 horizontal velocity 'vx', and
-;                 width 'w' in pixels
-(define-struct paddle [x row speed dir width])
-
-; a Breakout is (make-breakout Ball List<Block>)
-(define-struct breakout [loba lobr lop])
-
-; others
-(define-struct collision-geometry [left top right bottom])
-(define-struct other [row])
-
-;; Helpers
-
+; row->color : NonnegativeInteger -> Color
+; convert row number 'row' into a Color
 (define (row->color row)
-  (cond
-    [(<= 0 row 4) "blue"]
-    [(<= 5 row 8) "orange"]
-    [(<= 9 row 12) "green"]
-    [(<= 13 row 28) "yellow"]
-    [(<= 29 row 29) "blue"]
-    [(<= 30 row 31) "white"]))
+  (color-overlay-c
+   (get-first
+    (lambda (a-color-overlay)
+      (and (<= (color-overlay-i a-color-overlay) row)
+           (< row (color-overlay-j a-color-overlay))))
+    FG-COLORS)))
 
+; row->y : NonnegativeInteger -> Number
+; convert row number 'row' into a position in the y-coordinate
 (define (row->y row)
   (* row CHAR-BLK-LENGTH))
 
+; col->x : NonnegativeInteger -> Number
+; convert column number 'col' into a position in the x-coordinate
 (define (col->x col)
   (* col CHAR-BLK-LENGTH))
 
+; brick-collision-geometry : Brick -> CollisionGeometry
+; get the collision geometry of Brick 'a-brick'
 (define (brick-collision-geometry a-brick)
   (local ((define x (col->x (brick-col a-brick)))
           (define y (row->y (brick-row a-brick)))
@@ -136,73 +223,44 @@
                              (+ x BRICK-WIDTH)
                              (+ a-top BRICK-HEIGHT))))
 
+; paddle-collision-geometry : Paddle -> CollisionGeometry
+; get the collision geometry of Paddle 'a-paddle'
 (define (paddle-collision-geometry a-paddle)
   (local ((define x (paddle-x a-paddle))
           (define y (row->y (paddle-row a-paddle)))
           (define a-top (- y (/ (+ IBRICK-HEIGHT PF-SPACING) 2))))
-    (make-collision-geometry x a-top
-                             (+ x (paddle-width a-paddle))
-                             (+ y IBRICK-HEIGHT))))
+    (make-collision-geometry (- x (/ PF-SPACING 2))
+                             a-top
+                             (+ x (paddle-width a-paddle) (/ PF-SPACING 2))
+                             (+ y (- BRICK-HEIGHT (* PF-SPACING 3/2))))))
 
-(define LEFT
-  (+ WALL-THICKNESS (/ PF-SPACING 2)))
-
-(define RIGHT
-  (- PF-WIDTH LEFT))
-
-(define TOP
-  (- BRICK-HEIGHT (/ IBRICK-HEIGHT 2)))
-
-(define BOTTOM
-  (- PF-HEIGHT CHAR-BLK-LENGTH))
-
-;;; Data examples
-
-; List<Paddle>
-(define LOP-0 (build-list (/ (- PF-COL-COUNT 2) 2)
-                          (lambda (n)
-                            (make-paddle (col->x (+ (* 2 n) 1)) 29 0 0 BRICK-WIDTH))))
-
-; List<Block>
-(define LOBR-0 (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 1)))
-                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 2)))
-                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 3)))
-                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 4)))
-                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 9)))
-                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 10)))
-                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
-                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
-
-; Ball
-(define LOBA-0 (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
-                     (make-ball (* PF-WIDTH 2/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
-                     (make-ball (* PF-WIDTH 3/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
-                     (make-ball (* PF-WIDTH 4/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
-                     (make-ball (* PF-WIDTH 5/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)))
-
-; Breakout
-(define BREAKOUT0 (make-breakout LOBA-0 LOBR-0 LOP-0))
-
-;; Functions
-
+; ball-vx : Ball -> Number
+; get the velocity in the x-direction of 'a-ball'
 (define (ball-vx a-ball)
   (* (cos (ball-dir a-ball))
      (ball-speed a-ball)
-     ;SPT
-     ))
+     SPT))
 
+; ball-vy : Ball -> Number
+; get the velocity in the y-direction of 'a-ball'
 (define (ball-vy a-ball)
   (* (sin (ball-dir a-ball))
      (ball-speed a-ball)
-     ;SPT
-     ))
+     SPT))
 
-(define (reverseXDir dir)
-  (* (sgn dir) (- pi (abs dir))))
+; reflect-h : Angle -> Angle
+; reflect Angle 'a' horizontally
+(define (reflect-h a)
+  (* (sgn a) (- pi (abs a))))
 
-(define (reverseYDir dir)
-  (- dir))
+; reflect-v : Angle -> Angle
+; reflect Angle 'a' vertically
+(define (reflect-v a)
+  (- a))
 
+; get-first : [X -> Boolean] List<X> -> Maybe<X>
+; get the first element of list 'l' that satisfies predicate 'p?', if it exists;
+; otherwise, return #false
 (define (get-first p? l)
   (cond
     [(empty? l) #false]
@@ -212,6 +270,9 @@
            first-l
            (get-first p? (rest l))))]))
 
+; get-dir : Number Paddle -> Angle
+; get an angle of reflection of a point with horizontal position 'x'
+; given that it collided with Paddle 'a-paddle'
 (define (get-dir x a-paddle)
   (local ((define a-collision-geometry (paddle-collision-geometry a-paddle))
           (define left (collision-geometry-left a-collision-geometry))
@@ -227,117 +288,26 @@
       [(and (< (+ left (* width 3/4)) x) (<= x (+ left (* width 4/4))))
        (* pi -1/4)])))
 
-; update : Breakout -> Breakout
-; update 'a-brkt' for one clock tick
-(define (update-ball a-ball a-brkt)
-  (local (; current Blocks in 'a-brkt'
-          (define a-lobr (breakout-lobr a-brkt))
-          ; current Paddle in 'a-brkt'
-          (define a-lop (breakout-lop a-brkt))
-          ; initial position
-          (define x1 (ball-x a-ball))
-          (define y1 (ball-y a-ball))
-          ; final position without collisions
-          (define x2 (+ x1 (ball-vx a-ball)))
-          (define y2 (+ y1 (ball-vy a-ball)))
-          (define new-ball
-            (cond
-              ; right sidewall collision
-              [(>= (+ x2 BALL-RADIUS) RIGHT)
-               (make-ball (- RIGHT BALL-RADIUS)
-                          y2
-                          (ball-speed a-ball)
-                          (reverseXDir (ball-dir a-ball))
-                          (ball-lastbrick a-ball)
-                          0)]
-              ; left sidewall collision
-              [(<= (- x2 BALL-RADIUS) LEFT)
-               (make-ball (+ LEFT BALL-RADIUS)
-                          y2
-                          (ball-speed a-ball)
-                          (reverseXDir (ball-dir a-ball))
-                          (ball-lastbrick a-ball)
-                          0)]
-              ; no collision
-              [else
-               (make-ball x2 y2
-                          (ball-speed a-ball)
-                          (ball-dir a-ball)
-                          (ball-lastbrick a-ball)
-                          0)]))
-          (define x3 (ball-x new-ball))
-          (define y3 (ball-y new-ball))
-          (define (brick-collision? a-brick)
-            (local ((define a-collision-geometry (brick-collision-geometry a-brick))
-                    (define left (collision-geometry-left a-collision-geometry))
-                    (define top (collision-geometry-top a-collision-geometry))
-                    (define right (collision-geometry-right a-collision-geometry))
-                    (define bottom (collision-geometry-bottom a-collision-geometry)))
-              (and (<= left x3 right)
-                   (<= top y3 bottom)
-                   (or (and (other? (ball-lastbrick new-ball))
-                            (< 1 (abs (- (other-row (ball-lastbrick new-ball))
-                                         (brick-row a-brick)))))
-                       (and (brick? (ball-lastbrick new-ball))
-                            (< 3 (abs (- (brick-row (ball-lastbrick new-ball))
-                                         (brick-row a-brick)))))))))
-          (define (paddle-collision? a-paddle)
-            (local ((define a-collision-geometry (paddle-collision-geometry a-paddle))
-                    (define left (collision-geometry-left a-collision-geometry))
-                    (define top (collision-geometry-top a-collision-geometry))
-                    (define right (collision-geometry-right a-collision-geometry))
-                    (define bottom (collision-geometry-bottom a-collision-geometry)))
-              (and (<= left x3 right)
-                   (<= top y3 bottom))))
-          (define collided-brick (get-first brick-collision? a-lobr))
-          (define collided-paddle (get-first paddle-collision? a-lop)))
-    (cond
-      ; bottom of playfield collision
-      [(> (+ y3 BALL-RADIUS) BOTTOM)
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (reverseYDir (ball-dir new-ball))
-                  (ball-lastbrick new-ball)
-                  0)]
-      ; backwall collision
-      [(< y3 TOP)
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (reverseYDir (ball-dir new-ball))
-                  (make-other 0)
-                  0)]
-      ; brick collision
-      [(not (false? collided-brick))
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (reverseYDir (ball-dir new-ball))
-                  collided-brick
-                  0)]
-      ; paddle collision
-      [(not (false? collided-paddle))
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (get-dir x3 collided-paddle)
-                  (make-other (paddle-row collided-paddle))
-                  0)]
-      ; no collision
-      [else
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (ball-dir new-ball)
-                  (ball-lastbrick new-ball)
-                  0)])))
-
+; remove-bricks : List<Ball> List<Brick> -> List<Brick>
+; remove Bricks from a list of Bricks 'a-lobr' given a list of Balls 'a-loba'
 (define (remove-bricks a-loba a-lobr)
   (cond
     [(empty? a-loba) a-lobr]
     [else
-     (remove (ball-lastbrick (first a-loba))
+     (remove (ball-last-vobject (first a-loba))
              (remove-bricks (rest a-loba) a-lobr))]))
 
+;;; Tick handling
+;;;;;;;;;;;;;;;;;;
+
+; update : Breakout -> Breakout
+; update Breakout 'a-brkt' for one clock tick
 (define (update a-brkt)
-  (local ((define a-lobr (breakout-lobr a-brkt))
+  (local (; current Blocks in 'a-brkt'
+          (define a-lobr (breakout-lobr a-brkt))
+          ; current Balls in 'a-brkt'
           (define a-loba (breakout-loba a-brkt))
+          ; updated Balls
           (define new-loba
             (map (lambda (a-ball)
                    (update-ball a-ball a-brkt))
@@ -346,16 +316,129 @@
                    (remove-bricks new-loba a-lobr)
                    (breakout-lop a-brkt))))
 
+; update-ball : Ball Breakout -> Ball
+; update 'a-ball' for one clock tick given current Breakout 'a-brkt'
+(define (update-ball a-ball a-brkt)
+  (local (; current Blocks in 'a-brkt'
+          (define a-lobr (breakout-lobr a-brkt))
+          ; current Paddles in 'a-brkt'
+          (define a-lop (breakout-lop a-brkt))
+          ; 'a-ball' initial position
+          (define x1 (ball-x a-ball))
+          (define y1 (ball-y a-ball))
+          ; 'a-ball' final position without collisions
+          (define x2 (+ x1 (ball-vx a-ball)))
+          (define y2 (+ y1 (ball-vy a-ball)))
+          ; updated 'a-ball' considering 'BALL-MIN-X' and 'BALL-MAX-X'
+          (define new-ball
+            (cond
+              ; right sidewall collision
+              [(>= x2 BALL-MAX-X)
+               (make-ball BALL-MAX-X y2
+                          (ball-speed a-ball)
+                          (reflect-h (ball-dir a-ball))
+                          (ball-last-vobject a-ball)
+                          (ball-paddle-hit-count a-ball))]
+              ; left sidewall collision
+              [(<= x2 BALL-MIN-X)
+               (make-ball BALL-MIN-X y2
+                          (ball-speed a-ball)
+                          (reflect-h (ball-dir a-ball))
+                          (ball-last-vobject a-ball)
+                          (ball-paddle-hit-count a-ball))]
+              ; no collision
+              [else
+               (make-ball x2 y2
+                          (ball-speed a-ball)
+                          (ball-dir a-ball)
+                          (ball-last-vobject a-ball)
+                          (ball-paddle-hit-count a-ball))]))
+          ; 'new-ball' position
+          (define x3 (ball-x new-ball))
+          (define y3 (ball-y new-ball))
+          ; brick-collision? : Brick -> Boolean
+          ; check whether 'new-ball' is in collision with 'a-brick'
+          (define (brick-collision? a-brick)
+            (local ((define a-collision-geometry (brick-collision-geometry a-brick))
+                    (define left (collision-geometry-left a-collision-geometry))
+                    (define top (collision-geometry-top a-collision-geometry))
+                    (define right (collision-geometry-right a-collision-geometry))
+                    (define bottom (collision-geometry-bottom a-collision-geometry))
+                    (define last-vobject (ball-last-vobject new-ball)))
+              (and (<= left x3 right)
+                   (<= top y3 bottom)
+                   (or (and (backwall? last-vobject)
+                            (< 1 (brick-row a-brick)))
+                       (and (paddle? last-vobject)
+                            (< 1 (abs (- (paddle-row last-vobject)
+                                         (brick-row a-brick)))))
+                       (and (brick? last-vobject)
+                            (< 3 (abs (- (brick-row last-vobject)
+                                         (brick-row a-brick)))))))))
+          ; paddle-collision? : Paddle -> Boolean
+          ; check whether 'new-ball' is in collision with 'a-paddle'
+          (define (paddle-collision? a-paddle)
+            (local ((define a-collision-geometry (paddle-collision-geometry a-paddle))
+                    (define left (collision-geometry-left a-collision-geometry))
+                    (define top (collision-geometry-top a-collision-geometry))
+                    (define right (collision-geometry-right a-collision-geometry))
+                    (define bottom (collision-geometry-bottom a-collision-geometry)))
+              (and (<= left x3 right)
+                   (<= top y3 bottom))))
+          ; brick that collided with 'new-ball', if any
+          (define collided-brick (get-first brick-collision? a-lobr))
+          ; paddle that collided with 'new-ball', if any
+          (define collided-paddle (get-first paddle-collision? a-lop)))
+    (cond
+      ; bottom of playfield collision
+      [(> y3 BALL-MAX-Y)
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (reflect-v (ball-dir new-ball))
+                  (ball-last-vobject new-ball)
+                  (ball-paddle-hit-count new-ball))]
+      ; backwall collision
+      [(< y3 BALL-MIN-Y)
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (reflect-v (ball-dir new-ball))
+                  BACKWALL
+                  (ball-paddle-hit-count new-ball))]
+      ; brick collision
+      [(not (false? collided-brick))
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (reflect-v (ball-dir new-ball))
+                  collided-brick
+                  (ball-paddle-hit-count new-ball))]
+      ; paddle collision
+      [(not (false? collided-paddle))
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (get-dir x3 collided-paddle)
+                  collided-paddle
+                  (add1 (ball-paddle-hit-count new-ball)))]
+      ; no collision
+      [else
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (ball-dir new-ball)
+                  (ball-last-vobject new-ball)
+                  (ball-paddle-hit-count new-ball))])))
+
+;;; Rendering
+;;;;;;;;;;;;;;
+
 ; render : Breakout -> Breakout
 ; a rendered breakout game 'a-brkt'
 (define (render a-brkt)
   (render-balls (breakout-loba a-brkt)
                 (render-bricks (breakout-lobr a-brkt)
                                (render-paddles (breakout-lop a-brkt)
-                                               BG-IMG))))
+                                               PF-IMG))))
 
 ; render-blocks : List<Block> Image -> Image
-; an 'bg-img' with Blocks 'a-lob' placed on it
+; a 'bg-img' with Bricks 'a-lobr' placed on it
 (define (render-bricks a-lobr bg-img)
   (cond
     [(empty? a-lobr) bg-img]
@@ -372,8 +455,8 @@
                        (/ BRICK-HEIGHT 2))
                     (render-bricks (rest a-lobr) bg-img)))]))
 
-; render-ball : Ball Image -> Image
-; an 'bg-img' with Ball 'a-ball' placed on it
+; render-balls : List<Ball> Image -> Image
+; a 'bg-img' with Balls 'a-loba' placed on it
 (define (render-balls a-loba bg-img)
   (cond
     [(empty? a-loba) bg-img]
@@ -387,8 +470,8 @@
                     (ball-y a-ball)
                     (render-balls (rest a-loba) bg-img)))]))
 
-; render-paddle : Paddle Image -> Image
-; an 'bg-img' with Paddle 'a-paddle' placed on it
+; render-paddles : List<Paddle> Image -> Image
+; a 'bg-img' with Paddles 'a-lop' placed on it
 (define (render-paddles a-lop bg-img)
   (cond
     [(empty? a-lop) bg-img]
@@ -405,15 +488,36 @@
                        (/ IBRICK-HEIGHT 2))
                     (render-paddles (rest a-lop) bg-img)))]))
 
-;; Main
-;;;;;;;;
+;;; Main function
+;;;;;;;;;;;;;;;;;;
 
 ; run : Breakout -> Breakout
-; run the breakout game with initial state 'a-brkt'
-(define (run a-brkt)
-  (big-bang a-brkt
+; run the breakout game with initial state 'a-brkt0'
+(define (run a-brkt0)
+  (big-bang a-brkt0
     [on-tick update SPT]
     [state DEBUG?]
     [to-draw render]))
+
+; List<Paddle>
+(define LOP-0 (build-list (/ (- PF-COL-COUNT 2) 2)
+                          (lambda (n) (make-paddle (col->x (+ (* 2 n) 1)) 29 0 0 BRICK-WIDTH))))
+; List<Block>
+(define LOBR-0 (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 1)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 2)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 3)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 4)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 9)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 10)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
+; List<Ball>
+(define LOBA-0 (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 2/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 3/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 4/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 5/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)))
+; Breakout
+(define BREAKOUT0 (make-breakout LOBA-0 LOBR-0 LOP-0))
 
 (run BREAKOUT0)
