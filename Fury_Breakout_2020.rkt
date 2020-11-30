@@ -2,17 +2,6 @@
 ;; about the language level of this file in a form that our tools can easily process.
 #reader(lib "htdp-advanced-reader.ss" "lang")((modname Fury_Breakout_2020) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #t #t none #f () #f)))
 
-;; TODO
-; validate line-circle-intersection points with a rectangles
-; instead of passing x1 y1 x2 y2, pass sx0 sy0 vx vy or just s0 v
-
-;; MAIN ALGORITHM
-; For every tick,
-; - find the closest Collision (point and normal)
-; - remove the block(s) that is on the point.
-; - move the ball to the exact collision point and use the normal to flip directions
-; - recursively call update with the time remaining
-
 ;;; Libraries
 
 ; a library for drawing images
@@ -25,112 +14,71 @@
 ;;; Constants
 
 ; seconds per clock tick
-(define SPT 0.02)
+(define SPT 1)
 ; whether to debug or not
 (define DEBUG? #false)
-
-; width of the canvas in pixels
-(define CNVS-WIDTH 600)
-; height of the canvas in pixels
-(define CNVS-HEIGHT 800)
-; canvas frame thickness in pixels
-(define CNVS-FRM-THICKNESS 10)
 
 ; background color
 (define BG-COLOR "black")
 
-; playing field transparency
-(define FIELD-TRANSPARENCY 30)
-; number of columns in playing field
-(define COLNUM 13)
-; number of rows in playing field
-(define ROWNUM 32)
-; playing field spacing in pixels
-(define SPACING 4)
+; character block length in pixels
+(define CHAR-BLK-LENGTH 24)
+
+; number of columns in playfield
+(define PF-COL-COUNT 28)
+; number of rows in playfield
+(define PF-ROW-COUNT 32)
+
+; playfield spacing in pixels
+(define PF-SPACING (/ CHAR-BLK-LENGTH 4))
 
 ; ball radius in pixels
-(define BALL-RADIUS 5)
-; ball color
-(define BALL-COLOR "white")
-; ball speed
-(define BALL-SPEED 3)
+(define BALL-RADIUS (/ PF-SPACING 2))
+
+; brick width in pixels
+(define BRICK-WIDTH (* CHAR-BLK-LENGTH 2))
+; brick height in pixels
+(define BRICK-HEIGHT CHAR-BLK-LENGTH)
+; illuminated brick width in pixels
+(define IBRICK-WIDTH (- BRICK-WIDTH PF-SPACING))
+; illuminated brick height in pixels
+(define IBRICK-HEIGHT (- BRICK-HEIGHT PF-SPACING))
 
 ; wall thickness in pixels
-(define WALL-THICKNESS 20)
-; wall color
-(define WALL-COLOR "silver")
+(define WALL-THICKNESS IBRICK-HEIGHT)
 
-; block color
-(define BLOCK-COLOR "blue")
+; playfield width in pixels
+(define PF-WIDTH (* CHAR-BLK-LENGTH PF-COL-COUNT))
+; playfield height in pixels
+(define PF-HEIGHT (* CHAR-BLK-LENGTH PF-ROW-COUNT))
 
-; paddle row number
-(define PADDLE-ROW 28)
-; paddle color
-(define PADDLE-COLOR "lightblue")
-; paddle speed
-(define PADDLE-SPEED 8)
+; playfield image
+(define PF-IMG (rectangle PF-WIDTH PF-HEIGHT "solid" BG-COLOR))
 
-;;; Derived constants
-
-; playing field width in pixels
-(define FIELD-WIDTH (- CNVS-WIDTH (* 2 (+ WALL-THICKNESS CNVS-FRM-THICKNESS))))
-; playing field height in pixels
-(define FIELD-HEIGHT (- CNVS-HEIGHT WALL-THICKNESS (* 2 CNVS-FRM-THICKNESS)))
-; playing field image
-(define FIELD-IMG
-  (overlay/align
-    "center" "top"
-    (above (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "blue")
-           (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "orange")
-           (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "green")
-           (rectangle FIELD-WIDTH (/ FIELD-HEIGHT 8) FIELD-TRANSPARENCY "yellow"))
-    (rectangle FIELD-WIDTH FIELD-HEIGHT "solid" BG-COLOR)))
-
-; wall width in pixels
-(define WALL-WIDTH (- CNVS-WIDTH (* 2 CNVS-FRM-THICKNESS)))
-; wall height in pixels
-(define WALL-HEIGHT (- CNVS-HEIGHT (* 2 CNVS-FRM-THICKNESS)))
-; wall image
-(define WALL-IMG (rectangle WALL-WIDTH WALL-HEIGHT "solid" WALL-COLOR))
-
-; canvas frame image
-(define CNVS-FRM-IMG (rectangle CNVS-WIDTH CNVS-HEIGHT "solid" BG-COLOR))
+; backwall length
+(define BACKWALL-LENGTH (- PF-WIDTH PF-SPACING))
+; backwall image
+(define BACKWALL-IMG (rectangle BACKWALL-LENGTH WALL-THICKNESS "solid" "blue"))
+; sidewall image
+(define SIDEWALL-IMG
+  (above (rectangle WALL-THICKNESS (+ (/ PF-SPACING 2)
+                                      (* 4 BRICK-HEIGHT)) "solid" "blue")
+         (rectangle WALL-THICKNESS (* 4 BRICK-HEIGHT) "solid" "orange")
+         (rectangle WALL-THICKNESS (* 4 BRICK-HEIGHT) "solid" "green")
+         (rectangle WALL-THICKNESS (* 16 BRICK-HEIGHT) "solid" "yellow")
+         (rectangle WALL-THICKNESS BRICK-HEIGHT "solid" "blue")
+         (rectangle WALL-THICKNESS (- (* 2 BRICK-HEIGHT)
+                                      (/ PF-SPACING 2)) "solid" "white")))
 
 ; background image
 (define BG-IMG
-  (overlay
-   (overlay/align "center" "bottom" FIELD-IMG WALL-IMG)
-   CNVS-FRM-IMG))
-
-; ball image
-(define BALL-IMG (circle BALL-RADIUS "solid" BALL-COLOR))
-
-; table width in pixels
-(define TABLE-WIDTH (- FIELD-WIDTH SPACING))
-; table height in pixels
-(define TABLE-HEIGHT (- FIELD-HEIGHT SPACING))
-; cell width in pixels
-(define CELL-WIDTH (/ TABLE-WIDTH COLNUM))
-; cell height in pixels
-(define CELL-HEIGHT (/ TABLE-HEIGHT ROWNUM))
-; block width in pixels
-(define BLOCK-WIDTH (- CELL-WIDTH SPACING))
-; block height in pixels
-(define BLOCK-HEIGHT (- CELL-HEIGHT SPACING))
-; block image
-(define BLOCK-IMG (rectangle BLOCK-WIDTH BLOCK-HEIGHT "solid" BLOCK-COLOR))
-
-; paddle height
-(define PADDLE-HEIGHT BLOCK-HEIGHT)
-; paddle width
-(define PADDLE-WIDTH (* 4 PADDLE-HEIGHT))
-; paddle vertical position
-(define PADDLE-SY
-  (+ CNVS-FRM-THICKNESS
-     WALL-THICKNESS
-     SPACING
-     (* (+ BLOCK-HEIGHT SPACING)
-        PADDLE-ROW)))
+  (overlay (above BACKWALL-IMG
+                  (beside SIDEWALL-IMG
+                          (rectangle (- BACKWALL-LENGTH (* 2 WALL-THICKNESS))
+                                     (image-height SIDEWALL-IMG)
+                                     "solid" "transparent")
+                          SIDEWALL-IMG))
+           PF-IMG))
 
 ;;; Data types
 
@@ -142,1008 +90,320 @@
 ; - (add1 NonnegativeInteger) : a positive Integer
 ; interpretation: a non-negative integer
 
-; a Posn is (make-posn Number Number)
-; interpretation: a position vector ('x', 'y') in pixels
-; (define-struct posn [x y])
-
-; a Velo is (make-velo Number Number)
-; interpretation: a velocity vector ('x', 'y') in pixels per clock tick
-(define-struct velo [x y])
-
-; a Normal is (make-normal Number Number)
-; interpretation: a normal vector ('x', 'y')
-(define-struct normal [x y])
-
-; a Ball is (make-ball Posn Velo)
+; a Ball is (make-ball x y speed dir lastbrick paddle-hit-count)
 ; interpretation: a ball with position 's' and velocity 'v'
-(define-struct ball [s v paddle-hit-count])
-
-; a Wall is (make-wall Posn NonnegativeNumber NonnegativeNumber)
-; interpretation: a wall at position 's' with width 'w' and height 'h' in pixels
-(define-struct wall [s w h])
+(define-struct ball [x y speed dir lastbrick paddle-hit-count])
 
 ; a Block is (make-block NonnegativeInteger NonnegativeInteger)
 ; interpretation: a block in row number 'row' and column number 'col'
-(define-struct block [col row])
+(define-struct brick [col row])
 
 ; a Paddle is (make-paddle Number Number NonnegativeNumber)
 ; interpretation: a paddle with horizontal position 'sx',
 ;                 horizontal velocity 'vx', and
 ;                 width 'w' in pixels
-(define-struct paddle [sx vx w])
-
-; a BallObstacle is one of the following:
-; - Wall
-; - Block
-; - Paddle
-; interpretation: an object that a Ball can collide with
-
-; a Collision is (make-collision Number Normal BallObstacle)
-; interpretation: a collision, which occurs a fraction 't' of the way to
-;                 the final position of a ball if there weren't any collisions,
-;                 with normal 'n' between a Ball and a BallObstacle
-(define-struct collision [t n obstacle])
+(define-struct paddle [x row speed dir width])
 
 ; a Breakout is (make-breakout Ball List<Block>)
-(define-struct breakout [ball lob paddle score turnnum progression-count])
+(define-struct breakout [loba lobr lop])
+
+; others
+(define-struct collision-geometry [left top right bottom])
+(define-struct other [row])
+
+;; Helpers
+
+(define (row->color row)
+  (cond
+    [(<= 0 row 4) "blue"]
+    [(<= 5 row 8) "orange"]
+    [(<= 9 row 12) "green"]
+    [(<= 13 row 28) "yellow"]
+    [(<= 29 row 29) "blue"]
+    [(<= 30 row 31) "white"]))
+
+(define (row->y row)
+  (* row CHAR-BLK-LENGTH))
+
+(define (col->x col)
+  (* col CHAR-BLK-LENGTH))
+
+(define (brick-collision-geometry a-brick)
+  (local ((define x (col->x (brick-col a-brick)))
+          (define y (row->y (brick-row a-brick)))
+          (define a-top (- y (/ IBRICK-HEIGHT 2))))
+    (make-collision-geometry x a-top
+                             (+ x BRICK-WIDTH)
+                             (+ a-top BRICK-HEIGHT))))
+
+(define (paddle-collision-geometry a-paddle)
+  (local ((define x (paddle-x a-paddle))
+          (define y (row->y (paddle-row a-paddle)))
+          (define a-top (- y (/ (+ IBRICK-HEIGHT PF-SPACING) 2))))
+    (make-collision-geometry x a-top
+                             (+ x (paddle-width a-paddle))
+                             (+ y IBRICK-HEIGHT))))
+
+(define LEFT
+  (+ WALL-THICKNESS (/ PF-SPACING 2)))
+
+(define RIGHT
+  (- PF-WIDTH LEFT))
+
+(define TOP
+  (- BRICK-HEIGHT (/ IBRICK-HEIGHT 2)))
+
+(define BOTTOM
+  (- PF-HEIGHT CHAR-BLK-LENGTH))
 
 ;;; Data examples
 
-; Walls
-(define LEFT-WALL
-  (make-wall (make-posn CNVS-FRM-THICKNESS CNVS-FRM-THICKNESS) WALL-THICKNESS WALL-HEIGHT))
-(define TOP-WALL
-  (make-wall (make-posn CNVS-FRM-THICKNESS CNVS-FRM-THICKNESS) WALL-WIDTH WALL-THICKNESS))
-(define RIGHT-WALL
-  (make-wall (make-posn (- CNVS-WIDTH WALL-THICKNESS CNVS-FRM-THICKNESS) CNVS-FRM-THICKNESS) WALL-THICKNESS WALL-HEIGHT))
-
-; Paddle
-(define PADDLE0 (make-paddle 100 0 PADDLE-WIDTH))
-
-; List<Wall>
-(define LOW0 (list LEFT-WALL TOP-WALL RIGHT-WALL))
+; List<Paddle>
+(define LOP-0 (build-list (/ (- PF-COL-COUNT 2) 2)
+                          (lambda (n)
+                            (make-paddle (col->x (+ (* 2 n) 1)) 29 0 0 BRICK-WIDTH))))
 
 ; List<Block>
-(define NEW-BLOCKS (build-list COLNUM (lambda (n) (make-block n 0))))
-(define LOB0 (append NEW-BLOCKS
-                     (build-list COLNUM (lambda (n) (make-block n 1)))
-                     (build-list COLNUM (lambda (n) (make-block n 2)))
-                     (build-list COLNUM (lambda (n) (make-block n 3)))
-                     (build-list COLNUM (lambda (n) (make-block n 8)))
-                     (build-list COLNUM (lambda (n) (make-block n 9)))
-                     (build-list COLNUM (lambda (n) (make-block n 10)))
-                     (build-list COLNUM (lambda (n) (make-block n 11)))))
+(define LOBR-0 (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 1)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 2)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 3)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 4)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 9)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 10)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
+                       (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
 
 ; Ball
-(define BALL0 (make-ball (make-posn (/ CNVS-WIDTH 2) (* CNVS-HEIGHT 6/8))
-                         (make-velo (* BALL-SPEED (- (sqrt 2))) (* BALL-SPEED (- (sqrt 2))))
-                         0))
+(define LOBA-0 (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
+                     (make-ball (* PF-WIDTH 2/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
+                     (make-ball (* PF-WIDTH 3/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
+                     (make-ball (* PF-WIDTH 4/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)
+                     (make-ball (* PF-WIDTH 5/6) (row->y 22) 15 (/ pi 4) (make-other 0) 0)))
 
 ; Breakout
-(define BREAKOUT0 (make-breakout BALL0 LOB0 PADDLE0 0 1 0))
+(define BREAKOUT0 (make-breakout LOBA-0 LOBR-0 LOP-0))
 
-;;; Functions
+;; Functions
 
-(define (block-sx a-block)
-  (+ CNVS-FRM-THICKNESS
-     WALL-THICKNESS
-     SPACING
-     (* (+ BLOCK-WIDTH SPACING)
-        (block-col a-block))))
+(define (ball-vx a-ball)
+  (* (cos (ball-dir a-ball))
+     (ball-speed a-ball)
+     ;SPT
+     ))
 
-(define (block-sy a-block)
-  (+ CNVS-FRM-THICKNESS
-     WALL-THICKNESS
-     SPACING
-     (* (+ BLOCK-HEIGHT SPACING)
-        (block-row a-block))))
+(define (ball-vy a-ball)
+  (* (sin (ball-dir a-ball))
+     (ball-speed a-ball)
+     ;SPT
+     ))
 
-; breakout-loo : Breakout -> List<BallObstacle>
-; a list of BallObstacles in 'a-brkt'
-(define (breakout-loo a-brkt)
-  (cons (breakout-paddle a-brkt)
-        (append (breakout-lob a-brkt)
-                LOW0)))
+(define (reverseXDir dir)
+  (* (sgn dir) (- pi (abs dir))))
 
-; filtered-obstacles : Number Number Number Number List<BallObstacle> -> List<BallObstacle>
-; a sublist of a list of BallObstacles, 'loo', that may be intersected by
-;    a line segment from ('x1', 'y1') to ('x2', 'y2')
-(define (filtered-obstacles x1 y1 x2 y2 loo)
-  (local ((define x-1 (min x1 x2))
-          (define x-2 (max x1 x2))
-          (define y-1 (min y1 y2))
-          (define y-2 (max y1 y2))
-          (define (may-collide? left top right bottom)
-            (and (>= x-2 (- left BALL-RADIUS))
-                 (>= (+ right BALL-RADIUS) x-1)
-                 (>= y-2 (- top BALL-RADIUS))
-                 (>= (+ bottom BALL-RADIUS) y-1))))
-    (filter (lambda (a-obst)
-            (cond
-              [(wall? a-obst)
-               (may-collide? (posn-x (wall-s a-obst))
-                             (posn-y (wall-s a-obst))
-                             (+ (posn-x (wall-s a-obst))
-                                (wall-w a-obst))
-                             (+ (posn-y (wall-s a-obst))
-                                (wall-h a-obst)))]
-              [(block? a-obst)
-               (may-collide? (block-sx a-obst)
-                             (block-sy a-obst)
-                             (+ (block-sx a-obst)
-                                BLOCK-WIDTH)
-                             (+ (block-sy a-obst)
-                                BLOCK-HEIGHT))]
-              [(paddle? a-obst)
-               (may-collide? (paddle-sx a-obst)
-                             PADDLE-SY
-                             (+ (paddle-sx a-obst)
-                                (paddle-w a-obst))
-                             (+ PADDLE-SY
-                                PADDLE-HEIGHT))]))
-            loo)))
+(define (reverseYDir dir)
+  (- dir))
 
-; line-collision : Number Number Number Number BallObstacle -> Maybe<Collision>
-; a Collision between a BallObstacle, 'a-obst',
-;    and a line segment from ('x1', 'y1') to ('x2', 'y2')
-(define (line-collision x1 y1 x2 y2 a-obst)
+(define (get-first p? l)
   (cond
-    [(wall? a-obst)
-     (line-rrect-collision x1 y1 x2 y2
-                           (posn-x (wall-s a-obst))
-                           (posn-y (wall-s a-obst))
-                           (+ (posn-x (wall-s a-obst))
-                              (wall-w a-obst))
-                           (+ (posn-y (wall-s a-obst))
-                              (wall-h a-obst))
-                           a-obst)]
-    [(block? a-obst)
-     (line-rrect-collision x1 y1 x2 y2
-                           (block-sx a-obst)
-                           (block-sy a-obst)
-                           (+ (block-sx a-obst)
-                              BLOCK-WIDTH)
-                           (+ (block-sy a-obst)
-                              BLOCK-HEIGHT)
-                           a-obst)]
-    [(paddle? a-obst)
-     (line-rpaddle-collision x1 y1 x2 y2
-                             (paddle-sx a-obst)
-                             PADDLE-SY
-                             (+ (paddle-sx a-obst)
-                                (paddle-w a-obst))
-                             (+ PADDLE-SY
-                                PADDLE-HEIGHT)
-                             a-obst)]))
+    [(empty? l) #false]
+    [else
+     (local ((define first-l (first l)))
+       (if (p? first-l)
+           first-l
+           (get-first p? (rest l))))]))
 
-;; Tick handling
-;;;;;;;;;;;;;;;;;
-
-; next-ball-collision : Ball List<BallObstacle> NonnegativeNumber -> Maybe<Collision>
-; a list of the next simultaneously-occurring Collisions
-;    between a Ball and a BallObstacle in 'a-brkt'
-;    during the next 'delta-t' clock ticks
-(define (next-ball-collision a-ball a-loo delta-t)
-  (local (; the current position of 'a-ball'
-          (define s0 (ball-s a-ball))
-          ; the position of 'a-ball' after 'delta-t' clocks ticks,
-          ;    given that there are no collisions
-          (define s (get-s s0 (ball-v a-ball) delta-t))
-          ; x- and y-components of 's0'
-          (define x1 (posn-x s0))
-          (define y1 (posn-y s0))
-          ; x- and y-components of 's'
-          (define x2 (posn-x s))
-          (define y2 (posn-y s))
-          ; a list of BallObstacles that may collide with the Ball
-          (define filtered-loo (filtered-obstacles x1 y1 x2 y2 a-loo)))
-    (next-line-collision x1 y1 x2 y2 filtered-loo)))
-
-; next-line-collisions : Number Number Number Number List<BallObstacle> -> Maybe<Collision>
-; a list of the next simultaneously-occurring Collisions
-;    between a line segment from ('x1', 'y1') to ('x2', 'y2')
-;    and a BallObstacle in 'a-brkt'
-(define (next-line-collision x1 y1 x2 y2 a-loo)
-  (nearest-collision (all-line-collisions x1 y1 x2 y2 a-loo)))
-
-; all-line-collisions : Number Number Number Number Breakout -> List<Collision>
-; a list of the all Collisions
-;    between a line segment from ('x1', 'y1') to ('x2', 'y2')
-;    and a BallObstacle in 'a-brkt'
-(define (all-line-collisions x1 y1 x2 y2 a-loo)
-  (remove-all #false
-              (map (lambda (a-obst)
-                     (line-collision x1 y1 x2 y2 a-obst))
-                   a-loo)))
-
-; nearest-collision : List<Collision> -> Maybe<Collision>
-; a list of Collisions that have the smallest parametric value 
-(define (nearest-collision loc)
-  (cond
-    [(empty? loc) #false]
-    [else (argmin collision-t loc)]))
-
-;;; 
-
-; line-rpaddle-collision : Number Number Number Number Number Number Number Number BallObstacle -> Maybe<Collision>
-; a Posn representing the intersection points between
-;    a line segment from ('x1', 'y1') to ('x2', 'y2') and
-;    a rounded paddle with 'left', 'top', 'right', and 'bottom' sides
-(define (line-rpaddle-collision x1 y1 x2 y2 left top right bottom a-obst)
-  (local ((define w (paddle-w a-obst))
-          (define h PADDLE-HEIGHT)
-          (define r (paddle-r a-obst)))
+(define (get-dir x a-paddle)
+  (local ((define a-collision-geometry (paddle-collision-geometry a-paddle))
+          (define left (collision-geometry-left a-collision-geometry))
+          (define right (collision-geometry-right a-collision-geometry))
+          (define width (- right left)))
     (cond
-      [(< h (/ w 2))
-       (local ((define t-bottom (if (< y2 y1)
-                                    (line-line-intercept x1 y1 x2 y2
-                                                         left
-                                                         (+ bottom BALL-RADIUS)
-                                                         right
-                                                         (+ bottom BALL-RADIUS))
-                                    #false))
-               (define t-bottom-left (line-arc-intercept x1 y1 x2 y2
-                                                         left bottom BALL-RADIUS
-                                                         (lambda (a)
-                                                           (or (<= (/ pi 2) a pi)
-                                                               (<= (- pi)
-                                                                   a
-                                                                   (- (/ (- pi (acos (- 1 (/ (* w w) (* 2 r r))))) 2) pi))))))
-               (define t-bottom-right (line-arc-intercept x1 y1 x2 y2
-                                                          right bottom BALL-RADIUS
-                                                          (lambda (a)
-                                                            (<= (- (/ (- pi (acos (- 1 (/ (* w w) (* 2 r r))))) 2))
-                                                                a
-                                                                (/ pi 2)))))
-               (define t-top (line-arc-intercept x1 y1 x2 y2
-                                                 (/ (+ left right) 2) (+ PADDLE-SY r) (+ r BALL-RADIUS)
-                                                 (lambda (a)
-                                                   (<= (- (/ (- pi (acos (- 1 (/ (* w w) (* 2 r r))))) 2) pi)
-                                                       a
-                                                       (- (/ (- pi (acos (- 1 (/ (* w w) (* 2 r r))))) 2))))))
-               (define (make-this-ob-collision a-t a-n)
-                 (make-collision a-t a-n a-obst))
-               (define (check-normal a-normal)
-                 (if (false? a-normal) #false
-                     (local ((define vx (- x2 x1))
-                             (define vy (- y2 y1))
-                             (define nx (normal-x a-normal))
-                             (define ny (normal-y a-normal))
-                             (define dot (+ (* vx nx) (* vy ny))))
-                  (if (negative? dot) a-normal #false))))
-               (define (make-new-normal a-t cx cy)
-                 (if (false? a-t)
-                #false
-                (make-normal (- (+ x1 (* a-t (- x2 x1))) cx)
-                             (- (+ y1 (* a-t (- y2 y1))) cy))))
-               (define loc (filter (lambda (a-collision)
-                                     (and (not (false? (collision-t a-collision)))
-                                          (not (false? (collision-n a-collision)))))
-                                   (list (make-this-ob-collision t-bottom
-                                                                 (check-normal (make-normal 0 1)))
-                                         (make-this-ob-collision t-top
-                                                                 (check-normal (make-new-normal t-top (/ (+ left right) 2) (+ PADDLE-SY r))))
-                                         (make-this-ob-collision t-bottom-left
-                                                                 (check-normal (make-new-normal t-bottom-left left bottom)))
-                                         (make-this-ob-collision t-bottom-right
-                                                                 (check-normal (make-new-normal t-bottom-right right bottom)))))))
-         (nearest-collision loc))]
-      [(= h w)
-       (local ((define t-top (line-arc-intercept x1 y1 x2 y2
-                                                 (/ (+ left right) 2) (+ PADDLE-SY r) (+ r BALL-RADIUS)
-                                                 (lambda (a) #true)))
-               (define (make-this-ob-collision a-t a-n)
-                 (make-collision a-t a-n a-obst))
-               (define (check-normal a-normal)
-                 (if (false? a-normal) #false
-                     (local ((define vx (- x2 x1))
-                             (define vy (- y2 y1))
-                             (define nx (normal-x a-normal))
-                             (define ny (normal-y a-normal))
-                             (define dot (+ (* vx nx) (* vy ny))))
-                  (if (negative? dot) a-normal #false))))
-               (define (make-new-normal a-t cx cy)
-                 (if (false? a-t)
-                #false
-                (make-normal (- (+ x1 (* a-t (- x2 x1))) cx)
-                             (- (+ y1 (* a-t (- y2 y1))) cy))))
-               (define loc (filter (lambda (a-collision)
-                                     (and (not (false? (collision-t a-collision)))
-                                          (not (false? (collision-n a-collision)))))
-                                   (list (make-this-ob-collision
-                                          t-top (check-normal (make-new-normal t-top (/ (+ left right) 2) (+ PADDLE-SY r))))))))
-         (nearest-collision loc))]
-      [else
-       (local ((define y (- r h))
-               (define det (- (* r r) (* y y)))
-               (define x3 (+ (- (sqrt det)) (/ (+ left right) 2)))
-               (define x4 (+ (sqrt det) (/ (+ left right) 2)))
-               (define t-bottom (if (< y2 y1)
-                                    (line-line-intercept x1 y1 x2 y2
-                                                         x3 (+ bottom BALL-RADIUS)
-                                                         x4 (+ bottom BALL-RADIUS))
-                                    #false))
-               (define t-bottom-left (line-arc-intercept x1 y1 x2 y2
-                                                         x3 bottom BALL-RADIUS
-                                                         (lambda (a)
-                                                           (<= (/ pi 2)
-                                                               a
-                                                               (- pi (/ (- pi (acos (- 1 (/ (* (- x4 x3) (- x4 x3)) (* 2 r r))))) 2))))))
-               (define t-bottom-right (line-arc-intercept x1 y1 x2 y2
-                                                          x4 bottom BALL-RADIUS
-                                                          (lambda (a)
-                                                            (<= (/ (- pi (acos (- 1 (/ (* (- x4 x3) (- x4 x3)) (* 2 r r))))) 2)
-                                                                a
-                                                                (/ pi 2)))))
-               (define t-top (line-arc-intercept x1 y1 x2 y2
-                                                 (/ (+ left right) 2) (+ PADDLE-SY r) (+ r BALL-RADIUS)
-                                                 (lambda (a)
-                                                   (not (<= (/ (- pi (acos (- 1 (/ (* (- x4 x3) (- x4 x3)) (* 2 r r))))) 2)
-                                                            a
-                                                            (- pi (/ (- pi (acos (- 1 (/ (* (- x4 x3) (- x4 x3)) (* 2 r r))))) 2)))))))
-               (define (make-this-ob-collision a-t a-n)
-                 (make-collision a-t a-n a-obst))
-               (define (check-normal a-normal)
-                 (if (false? a-normal) #false
-                     (local ((define vx (- x2 x1))
-                             (define vy (- y2 y1))
-                             (define nx (normal-x a-normal))
-                             (define ny (normal-y a-normal))
-                             (define dot (+ (* vx nx) (* vy ny))))
-                  (if (negative? dot) a-normal #false))))
-               (define (make-new-normal a-t cx cy)
-                 (if (false? a-t)
-                #false
-                (make-normal (- (+ x1 (* a-t (- x2 x1))) cx)
-                             (- (+ y1 (* a-t (- y2 y1))) cy))))
-               (define loc (filter (lambda (a-collision)
-                                     (and (not (false? (collision-t a-collision)))
-                                          (not (false? (collision-n a-collision)))))
-                                   (list (make-this-ob-collision t-bottom
-                                                                 (check-normal (make-normal 0 1)))
-                                         (make-this-ob-collision t-top
-                                                                 (check-normal (make-new-normal t-top (/ (+ left right) 2) (+ PADDLE-SY r))))
-                                         (make-this-ob-collision t-bottom-left
-                                                                 (check-normal (make-new-normal t-bottom-left x3 bottom)))
-                                         (make-this-ob-collision t-bottom-right
-                                                                 (check-normal (make-new-normal t-bottom-right x4 bottom)))))))
-         (nearest-collision loc))])))
-
-; line-rrect-collision : Number Number Number Number Number Number Number Number BallObstacle -> Maybe<Collision>
-; find the Collision between a line segment going from ('x1', 'y1') to ('x2', 'y2')
-;    and a rectangle with top-left point of ('x1', 'y1') and bottom-right point of ('x2', 'y2')
-(define (line-rrect-collision x1 y1 x2 y2 left top right bottom a-obst)
-  (local ((define t-right (if (< x2 x1)
-                              (line-line-intercept x1 y1 x2 y2
-                                                   (+ right BALL-RADIUS)
-                                                   top
-                                                   (+ right BALL-RADIUS)
-                                                   bottom)
-                              #false))
-          (define t-left (if (> x2 x1)
-                             (line-line-intercept x1 y1 x2 y2
-                                                  (- left BALL-RADIUS)
-                                                  top
-                                                  (- left BALL-RADIUS)
-                                                  bottom)
-                             #false))
-          (define t-bottom (if (and (false? t-left)
-                                    (false? t-right)
-                                    (< y2 y1))
-                               (line-line-intercept x1 y1 x2 y2
-                                                    left
-                                                    (+ bottom BALL-RADIUS)
-                                                    right
-                                                    (+ bottom BALL-RADIUS))
-                               #false))
-          (define t-top (if (and (false? t-left)
-                                 (false? t-right)
-                                 (> y2 y1))
-                            (line-line-intercept x1 y1 x2 y2
-                                                 left
-                                                 (- top BALL-RADIUS)
-                                                 right
-                                                 (- top BALL-RADIUS))
-                            #false))
-          (define t-top-left (if (and (false? t-left)
-                                      (false? t-right)
-                                      (false? t-top)
-                                      (false? t-bottom)
-                                      (or (> y2 y1) (> x2 x1)))
-                                 (line-arc-intercept x1 y1 x2 y2
-                                                     left top BALL-RADIUS
-                                                     (lambda (a)
-                                                       (<= (- pi) a (/ pi -2))))
-                                 #false))
-          (define t-top-right (if (and (false? t-left)
-                                       (false? t-right)
-                                       (false? t-top)
-                                       (false? t-bottom)
-                                       (or (> y2 y1) (< x2 x1)))
-                                  (line-arc-intercept x1 y1 x2 y2
-                                                      right top BALL-RADIUS
-                                                      (lambda (a)
-                                                        (<= (/ pi -2) a 0)))
-                                  #false))
-          (define t-bottom-left (if (and (false? t-left)
-                                         (false? t-right)
-                                         (false? t-top)
-                                         (false? t-bottom)
-                                         (or (< y2 y1) (> x2 x1)))
-                                    (line-arc-intercept x1 y1 x2 y2
-                                                        left bottom BALL-RADIUS
-                                                        (lambda (a)
-                                                          (<= (/ pi 2) a pi)))
-                                    #false))
-          (define t-bottom-right (if (and (false? t-left)
-                                          (false? t-right)
-                                          (false? t-top)
-                                          (false? t-bottom)
-                                          (or (< y2 y1) (< x2 x1)))
-                                     (line-arc-intercept x1 y1 x2 y2
-                                                         right bottom BALL-RADIUS
-                                                         (lambda (a)
-                                                           (<= 0 a (/ pi 2))))
-                                     #false))
-          (define (make-this-ob-collision a-t a-n)
-            (make-collision a-t a-n a-obst))
-          (define (check-normal a-normal)
-            (if (false? a-normal) #false
-                (local ((define vx (- x2 x1))
-                        (define vy (- y2 y1))
-                        (define nx (normal-x a-normal))
-                        (define ny (normal-y a-normal))
-                        (define dot (+ (* vx nx) (* vy ny))))
-                  (if (negative? dot) a-normal #false))))
-          (define (make-new-normal a-t cx cy)
-            (if (false? a-t)
-                #false
-                (make-normal (- (+ x1 (* a-t (- x2 x1))) cx)
-                             (- (+ y1 (* a-t (- y2 y1))) cy))))
-          (define loc (filter (lambda (a-collision)
-                      (and (not (false? (collision-t a-collision)))
-                           (not (false? (collision-n a-collision)))))
-                    (list (make-this-ob-collision t-left
-                                                  (check-normal (make-normal -1 0)))
-                          (make-this-ob-collision t-right
-                                                  (check-normal (make-normal 1 0)))
-                          (make-this-ob-collision t-top
-                                                  (check-normal (make-normal 0 -1)))
-                          (make-this-ob-collision t-bottom
-                                                  (check-normal (make-normal 0 1)))
-                          (make-this-ob-collision t-top-left
-                                                  (check-normal (make-new-normal t-top-left left top)))
-                          (make-this-ob-collision t-top-right
-                                                  (check-normal (make-new-normal t-top-right right top)))
-                          (make-this-ob-collision t-bottom-left
-                                                  (check-normal (make-new-normal t-bottom-left left bottom)))
-                          (make-this-ob-collision t-bottom-right
-                                                  (check-normal (make-new-normal t-bottom-right right bottom)))))))
-    (nearest-collision loc)))
-
-;  (local ((define (fun-y)
-;            (cond
-;              [(< y2 y1)
-;               (if (false? (intercept x1 y1 x2 y2
-;                                      (- left BALL-RADIUS)
-;                                      (+ bottom BALL-RADIUS)
-;                                      (+ right BALL-RADIUS)
-;                                      (+ bottom BALL-RADIUS)))
-;                   #false
-;                   (make-collision (intercept x1 y1 x2 y2
-;                                              (- left BALL-RADIUS)
-;                                              (+ bottom BALL-RADIUS)
-;                                              (+ right BALL-RADIUS)
-;                                              (+ bottom BALL-RADIUS))
-;                                   "bottom" obstacle))]
-;              [(> y2 y1)
-;               (if (false? (intercept x1 y1 x2 y2
-;                                           (- left BALL-RADIUS)
-;                                           (- top BALL-RADIUS)
-;                                           (+ right BALL-RADIUS)
-;                                           (- top BALL-RADIUS)))
-;                   #false
-;                   (make-collision (intercept x1 y1 x2 y2
-;                                           (- left BALL-RADIUS)
-;                                           (- top BALL-RADIUS)
-;                                           (+ right BALL-RADIUS)
-;                                           (- top BALL-RADIUS))
-;                                "top" obstacle))]
-;              [else #false])))
-;    (cond
-;      [(< x2 x1)
-;       (if (false? (intercept x1 y1 x2 y2
-;                                           (+ right BALL-RADIUS)
-;                                           (- top BALL-RADIUS)
-;                                           (+ right BALL-RADIUS)
-;                                           (+ bottom BALL-RADIUS)))
-;         (fun-y)
-;         (make-collision (intercept x1 y1 x2 y2
-;                                    (+ right BALL-RADIUS)
-;                                    (- top BALL-RADIUS)
-;                                    (+ right BALL-RADIUS)
-;                                    (+ bottom BALL-RADIUS))
-;                         "right" obstacle))]
-;      [(> x2 x1)
-;       (if (false? (intercept x1 y1 x2 y2
-;                                           (- left BALL-RADIUS)
-;                                           (- top BALL-RADIUS)
-;                                           (- left BALL-RADIUS)
-;                                           (+ bottom BALL-RADIUS)))
-;           (fun-y)
-;           (make-collision (intercept x1 y1 x2 y2
-;                                      (- left BALL-RADIUS)
-;                                      (- top BALL-RADIUS)
-;                                      (- left BALL-RADIUS)
-;                                      (+ bottom BALL-RADIUS))
-;                                "left" obstacle))]
-;      [else (fun-y)])))
-
-; intercept : Number Number Number Number Number Number Number Number -> Maybe<Posn>
-; try to find the point of intersection of two line segments
-;    going from ('x1', 'y1') to ('x2', 'y2')
-;    and from ('x3', 'y3') to ('x4', 'y4')
-; header: (define (intercept x1 y1 x2 y2 x3 y3 x4 y4) (make-posn x1 y1))
-(define (line-line-intercept x1 y1 x2 y2 x3 y3 x4 y4)
-  (local ((define denom (- (* (- y4 y3) (- x2 x1))
-                           (* (- x4 x3) (- y2 y1)))))
-    (if (zero? denom)
-        #false
-        (local ((define t (/ (- (* (- x4 x3) (- y1 y3))
-                                (* (- y4 y3) (- x1 x3)))
-                             denom)))
-          (if (not (<= 0 t 1))
-              #false
-              (local ((define u (/ (- (* (- x2 x1) (- y1 y3))
-                                      (* (- y2 y1) (- x1 x3)))
-                                   denom)))
-                (if (not (<= 0 u 1))
-                    #false
-                    t)))))))
-
-; line-circle-intercept : Number Number Number Number Number Number Number -> Maybe<Number>
-(define (line-arc-intercept x1 y1 x2 y2 cx cy r fun)
-  (local ((define v10 (- x2 x1))
-          (define v11 (- y2 y1))
-          (define v20 (- x1 cx))
-          (define v21 (- y1 cy))
-          (define a (+ (* v10 v10)
-                       (* v11 v11)))
-          (define b (* 2 (+ (* v10 v20)
-                            (* v11 v21))))
-          (define c (- (+ (* v20 v20)
-                          (* v21 v21))
-                       (* r r)))
-          (define d (- (* b b) (* 4 a c)))
-          (define (get-x a-t)
-            (+ x1 (* a-t v10)))
-          (define (get-y a-t)
-            (+ y1 (* a-t v11)))
-          (define (valid? a-t)
-            (and (<= 0 a-t 1)
-                 (fun (atan (- (get-y a-t) cy)
-                            (- (get-x a-t) cx))))))
-    (cond
-      [(or (negative? d) (zero? a)) #false]
-      [(zero? d)
-       (local ((define t (/ (- b)
-                            (* 2 a))))
-         (if (valid? t) t #false))]
-      [else
-       (local ((define t1 (/ (- (- b) (sqrt d))
-                             (* 2 a)))
-               (define t2 (/ (+ (- b) (sqrt d))
-                             (* 2 a))))
-         (cond
-           [(and (valid? t1) (valid? t2))
-            (if (< t1 t2) t1 t2)]
-           [(valid? t1) t1]
-           [(valid? t2) t2]
-           [else #false]))])))
-
-; get-s : Posn Velo NonnegativeNumber -> Posn
-; calculate final Posn after 'delta-t' clock ticks
-;    given initial Posn 's0' and Velo 'v'
-; header: (define (get-s s0 v delta-t) s0)
-(define (get-s s0 v delta-t)
-  (make-posn (+ (posn-x s0) (* (velo-x v) delta-t))
-             (+ (posn-y s0) (* (velo-y v) delta-t))))
-
-; reflect : Velo Normal -> Velo
-; reflect 'a-velo' off Normal 'a-normal'
-(define (reflect a-velo a-normal)
-  (local (; horizontal velocity of 'a-velo'
-          (define vx (velo-x a-velo))
-          ; vertical velocity of 'a-velo'
-          (define vy (velo-y a-velo))
-          ; normalize : Normal -> Normal
-          ; calculates the normalized vector of 'n'
-          (define (normalize n)
-            (local (; x-component of 'n'
-                    (define nx (normal-x n))
-                    ; y-component of 'n'
-                    (define ny (normal-y n))
-                    ; norm of 'a-normal'
-                    (define norm (sqrt (+ (expt nx 2)
-                                          (expt ny 2)))))
-              (make-normal (/ nx norm) (/ ny norm))))
-          ; normalized vector of 'a-normal'
-          (define n-hat (normalize a-normal))
-          ; dot product of 'a-velo' and 'n-hat'
-          (define dot (+ (* vx (normal-x n-hat))
-                         (* vy (normal-y n-hat)))))
-    (make-velo (- vx (* 2 dot (normal-x n-hat)))
-               (- vy (* 2 dot (normal-y n-hat))))))
+      [(and (<= (+ left (* width 0/4)) x) (< x (+ left (* width 1/4))))
+       (* pi -3/4)]
+      [(and (<= (+ left (* width 1/4)) x) (<= x (+ left (* width 2/4))))
+       (* pi -2/3)]
+      [(and (< (+ left (* width 2/4)) x) (<= x (+ left (* width 3/4))))
+       (* pi -1/3)]
+      [(and (< (+ left (* width 3/4)) x) (<= x (+ left (* width 4/4))))
+       (* pi -1/4)])))
 
 ; update : Breakout -> Breakout
-; update 'a-brkt0' for one clock tick
-(define (update a-brkt0)
-  (local (; update/acc : Breakout NonnegativeNumber -> Breakout
-          ; update 'a-brkt' for 'delta-t' clock ticks
-          ; header: (define (update/acc a-brkt delta-t) a-brkt)
-          (define (update/acc a-brkt delta-t)
-            (local (; current Ball in 'a-brkt'
-                    (define a-ball (breakout-ball a-brkt))
-                    ; current Blocks in 'a-brkt'
-                    (define a-lob (breakout-lob a-brkt))
-                    ; current Paddle in 'a-brkt'
-                    (define a-paddle (breakout-paddle a-brkt))
-                    ; current score in 'a-brkt'
-                    (define a-score (breakout-score a-brkt))
-                    ; current turn number in 'a-brkt'
-                    (define a-turnnum (breakout-turnnum a-brkt))
-                    ; current progression-count in 'a-brkt'
-                    (define a-progression-count (breakout-progression-count a-brkt))
-                    ; 'a-ball' initial position
-                    (define s0 (ball-s a-ball))
-                    ; 'a-ball' velocity
-                    (define v (ball-v a-ball))
-                    ; a list of BallObstacles
-                    (define a-loo (breakout-loo a-brkt))
-                    ; a list of the next simultaneously-occurring Collisions
-                    ;    between 'a-ball' and a BallObstacle in 'delta-t' ticks
-                    (define a-collision (next-ball-collision a-ball a-loo delta-t))
-                    ; 'a-ball' final position without collisions
-                    (define s (get-s s0 v delta-t)))
-              (cond
-                [(false? a-collision) ; no collisions
-                 (if (or (< CNVS-HEIGHT (posn-y s))
-                         (< CNVS-WIDTH (posn-x s))
-                         (< (posn-y s) (* -2 BALL-RADIUS))
-                         (< (posn-x s) (* -2 BALL-RADIUS)))
-                     (make-breakout (reset-ball a-ball)
-                                    (reset-blocks a-lob)
-                                    (reset-paddle a-paddle)
-                                    a-score
-                                    (add1 a-turnnum)
-                                    a-progression-count)
-                     (make-breakout (make-ball s v (ball-paddle-hit-count a-ball))
-                                    a-lob a-paddle a-score a-turnnum a-progression-count))]
-                [else                 ; at least one collision
-                 (andplay ding
-                          (update/acc (make-breakout (update-ball a-ball delta-t a-collision)
-                                                     (update-blocks a-lob a-ball a-progression-count a-collision)
-                                                     (update-paddle a-paddle a-collision)
-                                                     (update-score a-score a-collision)
-                                                     a-turnnum
-                                                     (update-progression-count a-progression-count a-ball a-collision))
-                                      (* delta-t (- 1 (collision-t a-collision)))))]))))
-    (update/acc (move-paddle a-brkt0) 1)))
-
-(define (reset-ball a-ball)
-  BALL0)
-
-(define (reset-blocks a-lob)
-  (filter (lambda (a-block)
-            (> (- PADDLE-ROW 4) (block-row a-block)))
-          a-lob))
-
-(define (reset-paddle a-paddle)
-  (make-paddle (paddle-sx a-paddle)
-               (paddle-vx a-paddle)
-               PADDLE-WIDTH))
-
-; update-paddle : Paddle Collision -> Paddle
-(define (update-paddle a-paddle a-collision)
-  (cond
-    [(and (equal? TOP-WALL (collision-obstacle a-collision))
-          (= PADDLE-WIDTH (paddle-w a-paddle)))
-     (make-paddle (paddle-sx a-paddle)
-                  (paddle-vx a-paddle)
-                  (/ PADDLE-WIDTH 2))]
-    [else a-paddle]))
-
-(define (update-progression-count a-progression-count a-ball a-collision)
-  (if (and (paddle? (collision-obstacle a-collision))
-           (or (and (<= 55 (ball-paddle-hit-count a-ball))
-                    (= 0 (modulo (ball-paddle-hit-count a-ball) 1)))
-               (and (<= 23 (ball-paddle-hit-count a-ball))
-                    (= 1 (modulo (ball-paddle-hit-count a-ball) 2)))
-               (and (<= 7 (ball-paddle-hit-count a-ball))
-                    (= 3 (modulo (ball-paddle-hit-count a-ball) 4)))
-               (and (<= -1 (ball-paddle-hit-count a-ball))
-                    (= 7 (modulo (ball-paddle-hit-count a-ball) 8)))))
-      (add1 a-progression-count)
-      a-progression-count))
-
-; update-score : NonnegativeInteger Collision -> NonnegativeInteger
-(define (update-score a-score a-collision)
-  (cond
-    [(block? (collision-obstacle a-collision))
-     (+ a-score
-        (local ((define a-block (collision-obstacle a-collision)))
-          (cond
-            [(<= 0 (block-row a-block) 3)
-             7]
-            [(<= 4 (block-row a-block) 7)
-             5]
-            [(<= 8 (block-row a-block) 11)
-             3]
-            [(<= 12 (block-row a-block) 15)
-             1]
-            [else
-             1])))]
-    [else a-score]))
-
-;(define CELL-HEIGHT 20)
-;(define CELL-WIDTH 40)
-;
-;(define (grid->list a-loloc0)
-;  (local ((define (grid->list/acc row a-loloc)
-;            (cond
-;              [(empty? a-loloc) '()]
-;              [else
-;               (append (row->list row (first a-loloc))
-;                       (grid->list/acc (add1 row) (rest a-loloc)))])))
-;    (grid->list/acc 0 a-loloc0)))
-;
-;(define (row->list row a-loc0)
-;  (local (; row->list/acc : NonnegativeInteger List<Cell> -> List<Block>
-;          (define (row->list/acc cell a-loc)
-;            (cond
-;              [(empty? a-loc) '()]
-;              [else
-;               (if (zero? (first a-loc))
-;                   (row->list/acc (add1 cell) (rest a-loc))
-;                   (cons (make-block (make-posn (* cell CELL-WIDTH) (* row CELL-HEIGHT)))
-;                         (row->list/acc (add1 cell) (rest a-loc))))])))
-;    (row->list/acc 0 a-loc0)))
-
-; update-blocks : List<Block> Ball Paddle Collision -> List<Block>
-(define (update-blocks a-lob a-ball a-progression-count a-collision)
-  (local ((define new-lob (remove-all (collision-obstacle a-collision) a-lob))
-          (define progressed-lob
+; update 'a-brkt' for one clock tick
+(define (update-ball a-ball a-brkt)
+  (local (; current Blocks in 'a-brkt'
+          (define a-lobr (breakout-lobr a-brkt))
+          ; current Paddle in 'a-brkt'
+          (define a-lop (breakout-lop a-brkt))
+          ; initial position
+          (define x1 (ball-x a-ball))
+          (define y1 (ball-y a-ball))
+          ; final position without collisions
+          (define x2 (+ x1 (ball-vx a-ball)))
+          (define y2 (+ y1 (ball-vy a-ball)))
+          (define new-ball
             (cond
-              [(<= 0 (modulo a-progression-count 8) 3)
-               '()]
+              ; right sidewall collision
+              [(>= (+ x2 BALL-RADIUS) RIGHT)
+               (make-ball (- RIGHT BALL-RADIUS)
+                          y2
+                          (ball-speed a-ball)
+                          (reverseXDir (ball-dir a-ball))
+                          (ball-lastbrick a-ball)
+                          0)]
+              ; left sidewall collision
+              [(<= (- x2 BALL-RADIUS) LEFT)
+               (make-ball (+ LEFT BALL-RADIUS)
+                          y2
+                          (ball-speed a-ball)
+                          (reverseXDir (ball-dir a-ball))
+                          (ball-lastbrick a-ball)
+                          0)]
+              ; no collision
               [else
-               NEW-BLOCKS]))
-          (define (progress a-block)
-            (make-block (block-col a-block)
-                        (add1 (block-row a-block))))
-          (define (not-low? a-block)
-            (> (- PADDLE-ROW 1) (block-row a-block)))
-          (define progress?
-            (if (paddle? (collision-obstacle a-collision))
-                (or (and (<= 55 (ball-paddle-hit-count a-ball))
-                         (= 0 (modulo (ball-paddle-hit-count a-ball) 1)))
-                    (and (<= 23 (ball-paddle-hit-count a-ball))
-                         (= 1 (modulo (ball-paddle-hit-count a-ball) 2)))
-                    (and (<= 7 (ball-paddle-hit-count a-ball))
-                         (= 3 (modulo (ball-paddle-hit-count a-ball) 4)))
-                    (and (<= -1 (ball-paddle-hit-count a-ball))
-                         (= 7 (modulo (ball-paddle-hit-count a-ball) 8))))
-                #false)))
+               (make-ball x2 y2
+                          (ball-speed a-ball)
+                          (ball-dir a-ball)
+                          (ball-lastbrick a-ball)
+                          0)]))
+          (define x3 (ball-x new-ball))
+          (define y3 (ball-y new-ball))
+          (define (brick-collision? a-brick)
+            (local ((define a-collision-geometry (brick-collision-geometry a-brick))
+                    (define left (collision-geometry-left a-collision-geometry))
+                    (define top (collision-geometry-top a-collision-geometry))
+                    (define right (collision-geometry-right a-collision-geometry))
+                    (define bottom (collision-geometry-bottom a-collision-geometry)))
+              (and (<= left x3 right)
+                   (<= top y3 bottom)
+                   (or (and (other? (ball-lastbrick new-ball))
+                            (< 1 (abs (- (other-row (ball-lastbrick new-ball))
+                                         (brick-row a-brick)))))
+                       (and (brick? (ball-lastbrick new-ball))
+                            (< 3 (abs (- (brick-row (ball-lastbrick new-ball))
+                                         (brick-row a-brick)))))))))
+          (define (paddle-collision? a-paddle)
+            (local ((define a-collision-geometry (paddle-collision-geometry a-paddle))
+                    (define left (collision-geometry-left a-collision-geometry))
+                    (define top (collision-geometry-top a-collision-geometry))
+                    (define right (collision-geometry-right a-collision-geometry))
+                    (define bottom (collision-geometry-bottom a-collision-geometry)))
+              (and (<= left x3 right)
+                   (<= top y3 bottom))))
+          (define collided-brick (get-first brick-collision? a-lobr))
+          (define collided-paddle (get-first paddle-collision? a-lop)))
     (cond
-      [progress?
-       (filter not-low? (append progressed-lob
-                                (map progress new-lob)))]
-      [else new-lob])))
+      ; bottom of playfield collision
+      [(> (+ y3 BALL-RADIUS) BOTTOM)
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (reverseYDir (ball-dir new-ball))
+                  (ball-lastbrick new-ball)
+                  0)]
+      ; backwall collision
+      [(< y3 TOP)
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (reverseYDir (ball-dir new-ball))
+                  (make-other 0)
+                  0)]
+      ; brick collision
+      [(not (false? collided-brick))
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (reverseYDir (ball-dir new-ball))
+                  collided-brick
+                  0)]
+      ; paddle collision
+      [(not (false? collided-paddle))
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (get-dir x3 collided-paddle)
+                  (make-other (paddle-row collided-paddle))
+                  0)]
+      ; no collision
+      [else
+       (make-ball x3 y3
+                  (ball-speed new-ball)
+                  (ball-dir new-ball)
+                  (ball-lastbrick new-ball)
+                  0)])))
 
-; update-ball : Ball NonnegativeNumber Collision -> Ball
-(define (update-ball a-ball delta-t a-collision)
-  (local ((define t (collision-t a-collision))
-          ; 'a-ball' initial position
-          (define s0 (ball-s a-ball))
-          ; 'a-ball' velocity
-          (define v (ball-v a-ball))
-          ; 'a-ball' final position without collisions
-          (define s (get-s s0 v delta-t))
-          ; 'a-ball' final position (collision point)
-          (define new-s
-            (make-posn (+ (posn-x s0) (* t (- (posn-x s) (posn-x s0))))
-                       (+ (posn-y s0) (* t (- (posn-y s) (posn-y s0))))))
-          ; 'a-ball' velocity after collision
-          (define new-v (reflect v (collision-n a-collision)))
-          ; 'a-ball' paddle hit count after collision
-          (define new-paddle-hit-count
-            (cond
-              [(paddle? (collision-obstacle a-collision))
-               (add1 (ball-paddle-hit-count a-ball))]
-              [else (ball-paddle-hit-count a-ball)]))
-          ; normalize : Normal -> Normal
-          ; calculates the normalized vector of 'n'
-          (define (normalize n)
-            (local (; x-component of 'n'
-                    (define nx (velo-x n))
-                    ; y-component of 'n'
-                    (define ny (velo-y n))
-                    ; norm of 'a-normal'
-                    (define norm (sqrt (+ (expt nx 2)
-                                          (expt ny 2)))))
-              (make-velo (/ nx norm) (/ ny norm))))
-          (define mag (sqrt (+ (* (velo-x new-v) (velo-x new-v))
-                               (* (velo-y new-v) (velo-y new-v)))))
-          ; 'a-ball' velocity after collision
-          (define new-new-v
-            (cond
-              [(block? (collision-obstacle a-collision))
-               (local ((define a-block (collision-obstacle a-collision)))
-                 (cond
-                   [(<= 0 (block-row a-block) 7)
-                    (make-velo (* 3 BALL-SPEED (velo-x (normalize new-v)))
-                               (* 3 BALL-SPEED (velo-y (normalize new-v))))]
-                   [else new-v]))]
-              [(paddle? (collision-obstacle a-collision))
-               (cond
-                 [(and (= 12 new-paddle-hit-count)
-                       (< mag (* 2.5 BALL-SPEED)))
-                  (make-velo (* 2.5 BALL-SPEED (velo-x (normalize new-v)))
-                             (* 2.5 BALL-SPEED (velo-y (normalize new-v))))]
-                 [(and (= 8 new-paddle-hit-count)
-                       (< mag (* 2 BALL-SPEED)))
-                  (make-velo (* 2 BALL-SPEED (velo-x (normalize new-v)))
-                             (* 2 BALL-SPEED (velo-y (normalize new-v))))]
-                 [(and (= 4 new-paddle-hit-count)
-                       (< mag (* 1.5 BALL-SPEED)))
-                  (make-velo (* 1.5 BALL-SPEED (velo-x (normalize new-v)))
-                             (* 1.5 BALL-SPEED (velo-y (normalize new-v))))]
-                 [else new-v])]
-              [else new-v])))
-    (make-ball new-s new-new-v new-paddle-hit-count)))
+(define (remove-bricks a-loba a-lobr)
+  (cond
+    [(empty? a-loba) a-lobr]
+    [else
+     (remove (ball-lastbrick (first a-loba))
+             (remove-bricks (rest a-loba) a-lobr))]))
 
-; move-paddle : Breakout -> Breakout
-; a Breakout with a moved paddle
-(define (move-paddle a-brkt)
-  (local ((define a-paddle (breakout-paddle a-brkt))
-          (define new-sx (+ (paddle-sx a-paddle)
-                            (paddle-vx a-paddle))))
-    (make-breakout (breakout-ball a-brkt)
-                   (breakout-lob a-brkt)
-                   (make-paddle (max (+ CNVS-FRM-THICKNESS
-                                        WALL-THICKNESS)
-                                     (min (- CNVS-WIDTH
-                                             CNVS-FRM-THICKNESS
-                                             WALL-THICKNESS
-                                             (paddle-w a-paddle))
-                                          new-sx))
-                                (paddle-vx a-paddle)
-                                (paddle-w a-paddle))
-                   (breakout-score a-brkt)
-                   (breakout-turnnum a-brkt)
-                   (breakout-progression-count a-brkt))))
-
-; set-paddle-vx : Number Breakout -> Breakout
-(define (set-paddle-vx vx a-brkt)
-  (local ((define a-paddle (breakout-paddle a-brkt)))
-    (make-breakout (breakout-ball a-brkt)
-                   (breakout-lob a-brkt)
-                   (make-paddle (paddle-sx a-paddle)
-                                vx
-                                (paddle-w a-paddle))
-                   (breakout-score a-brkt)
-                   (breakout-turnnum a-brkt)
-                   (breakout-progression-count a-brkt))))
-
-;; Rendering
-;;;;;;;;;;;;;
+(define (update a-brkt)
+  (local ((define a-lobr (breakout-lobr a-brkt))
+          (define a-loba (breakout-loba a-brkt))
+          (define new-loba
+            (map (lambda (a-ball)
+                   (update-ball a-ball a-brkt))
+                 a-loba)))
+    (make-breakout new-loba
+                   (remove-bricks new-loba a-lobr)
+                   (breakout-lop a-brkt))))
 
 ; render : Breakout -> Breakout
 ; a rendered breakout game 'a-brkt'
 (define (render a-brkt)
-  (render-ball (breakout-ball a-brkt)
-               (render-paddle (breakout-paddle a-brkt)
-                              (render-blocks (breakout-lob a-brkt)
-                                             (render-score (breakout-score a-brkt)
-                                                           (render-turnnum (breakout-turnnum a-brkt)
-                                                                           BG-IMG))))))
+  (render-balls (breakout-loba a-brkt)
+                (render-bricks (breakout-lobr a-brkt)
+                               (render-paddles (breakout-lop a-brkt)
+                                               BG-IMG))))
 
 ; render-blocks : List<Block> Image -> Image
 ; an 'bg-img' with Blocks 'a-lob' placed on it
-(define (render-blocks a-lob bg-img)
+(define (render-bricks a-lobr bg-img)
   (cond
-    [(empty? a-lob) bg-img]
+    [(empty? a-lobr) bg-img]
     [else
-     (local (; first Block in 'a-lob'
-             (define a-block (first a-lob)))
-       (place-image (rectangle
-                     BLOCK-WIDTH BLOCK-HEIGHT "solid"
-                     (cond
-                       [(<= 0 (block-row a-block) 3)
-                        "blue"]
-                       [(<= 4 (block-row a-block) 7)
-                        "orange"]
-                       [(<= 8 (block-row a-block) 11)
-                        "green"]
-                       [(<= 12 (block-row a-block) 15)
-                        "yellow"]
-                       [else
-                        "white"]))
-                    (+ (block-sx a-block) (/ BLOCK-WIDTH 2))
-                    (+ (block-sy a-block) (/ BLOCK-HEIGHT 2))
-                    (render-blocks (rest a-lob) bg-img)))]))
+     (local (; first Brick in 'a-lobr'
+             (define a-brick (first a-lobr)))
+       (place-image (rectangle IBRICK-WIDTH
+                               IBRICK-HEIGHT
+                               "solid"
+                               (row->color (brick-row a-brick)))
+                    (+ (col->x (brick-col a-brick))
+                       (/ BRICK-WIDTH 2))
+                    (+ (row->y (brick-row a-brick))
+                       (/ BRICK-HEIGHT 2))
+                    (render-bricks (rest a-lobr) bg-img)))]))
 
 ; render-ball : Ball Image -> Image
 ; an 'bg-img' with Ball 'a-ball' placed on it
-(define (render-ball a-ball bg-img)
-  (place-image BALL-IMG
-               (posn-x (ball-s a-ball))
-               (posn-y (ball-s a-ball))
-               bg-img))
+(define (render-balls a-loba bg-img)
+  (cond
+    [(empty? a-loba) bg-img]
+    [else
+     (local (; first Ball in 'a-loba'
+             (define a-ball (first a-loba)))
+       (place-image (square (* 2 BALL-RADIUS)
+                            "solid"
+                            "white")
+                    (ball-x a-ball)
+                    (ball-y a-ball)
+                    (render-balls (rest a-loba) bg-img)))]))
 
 ; render-paddle : Paddle Image -> Image
 ; an 'bg-img' with Paddle 'a-paddle' placed on it
-(define (render-paddle a-paddle bg-img)
-  (place-image (crop/align "center"
-                           "top"
-                           (paddle-w a-paddle)
-                           PADDLE-HEIGHT
-                           (circle (paddle-r a-paddle)
-                                   "solid"
-                                   PADDLE-COLOR))
-               (+ (paddle-sx a-paddle) (/ (paddle-w a-paddle) 2))
-               (+ PADDLE-SY (/ PADDLE-HEIGHT 2))
-               bg-img))
-
-(define (render-score a-score bg-img)
-  (place-image (text (number->string a-score) 30 "white")
-               (* CNVS-WIDTH 1/4)
-               (* CNVS-HEIGHT 15/16)
-               bg-img))
-
-(define (render-turnnum a-turnnum bg-img)
-  (place-image (text (number->string a-turnnum) 30 "white")
-               (* CNVS-WIDTH 1/2)
-               (* CNVS-HEIGHT 15/16)
-               bg-img))
-
-;; Key handling
-;;;;;;;;;;;;;;;;
-
-(define (handle-key a-brkt key)
+(define (render-paddles a-lop bg-img)
   (cond
-    [(key=? key "left")
-     (set-paddle-vx (- PADDLE-SPEED) a-brkt)]
-    [(key=? key "right")
-     (set-paddle-vx PADDLE-SPEED a-brkt)]
-    [else a-brkt]))
-
-(define (handle-release a-brkt key)
-  (cond
-    [(or (key=? key "left")
-         (key=? key "right"))
-     (set-paddle-vx 0 a-brkt)]
-    [else a-brkt]))
-
-;; Helpers
-;;;;;;;;;;;
-
-; paddle-r : Paddle -> NonnegativeNumber
-; the radius of Paddle 'a-paddle'
-(define (paddle-r a-paddle)
-  (local (; width of 'a-paddle'
-          (define w (paddle-w a-paddle))
-          ; height of 'a-paddle'
-          (define h PADDLE-HEIGHT))
-    (cond
-      [(< 0 h (/ w 2))
-       (+ (/ h 2)
-          (/ (* w w)
-             (* 8 h)))]
-      [(and (< 0 h) (<= h w))
-       (/ w 2)]
-      [else
-       (error "invalid paddle dimensions")])))
+    [(empty? a-lop) bg-img]
+    [else
+     (local (; first Paddle in 'a-lop'
+             (define a-paddle (first a-lop)))
+       (place-image (rectangle (- (paddle-width a-paddle) PF-SPACING)
+                               IBRICK-HEIGHT
+                               "solid"
+                               (row->color (paddle-row a-paddle)))
+                    (+ (paddle-x a-paddle)
+                       (/ (paddle-width a-paddle) 2))
+                    (+ (row->y (paddle-row a-paddle))
+                       (/ IBRICK-HEIGHT 2))
+                    (render-paddles (rest a-lop) bg-img)))]))
 
 ;; Main
 ;;;;;;;;
@@ -1153,8 +413,6 @@
 (define (run a-brkt)
   (big-bang a-brkt
     [on-tick update SPT]
-    [on-key handle-key]
-    [on-release handle-release]
     [state DEBUG?]
     [to-draw render]))
 
