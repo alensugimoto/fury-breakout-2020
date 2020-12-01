@@ -21,6 +21,11 @@
 ; - (add1 NonnegativeInteger) : a positive Integer
 ; interpretation: a non-negative integer
 
+; a Natural is one of the following:
+; - 1                         ; one
+; - (add1 NonnegativeInteger) : an Integer greater than one
+; interpretation: a natural number
+
 ; an Angle is between (- pi) exclusive and pi inclusive
 ; interpretation: an angle in radians
 
@@ -71,10 +76,66 @@
 ; interpretation: a color overlay applied over rows 'i' inclusive to 'j' exclusive
 (define-struct color-overlay [c i j])
 
-; a Breakout is (make-breakout List<Ball> List<Brick> List<Paddle>)
-; interpretation: a breakout game with Balls 'loba',
-;                 Bricks 'lobr', and Paddles 'lop'
-(define-struct breakout [loba lobr lop])
+; an AttractVersion is either 1 or 2
+; interpretation: an attract mode version in Super Breakout
+
+; an Attract is (make-attract AttractVersion)
+; interpretaton: a Super Breakout mode called "attract"
+(define-struct attract [version])
+
+; an ReadyToPlay is (make-ready-to-play)
+; interpretaton: a Super Breakout mode called "ready-to-play"
+(define-struct ready-to-play [])
+
+; a Play is (make-play)
+; interpretaton: a Super Breakout mode called "play"
+(define-struct play [])
+
+; a Mode is one of the following Strings:
+; - "attract"
+; - "ready-to-play"
+; - "play"
+; interpretation: the name of one of the three different modes of operation
+;                 in Super Breakout
+
+; a Game is one of the following Strings:
+; - "double"
+; - "cavity"
+; - "progressive"
+; interpretation: the name of one of the three Super Breakout games
+;                 in Super Breakout
+
+; a ControlPanel is (make-ctrl-panel serve? paddle-posn game one-player? two-player?)
+;    where serve?      : Boolean
+;          paddle-posn : Number
+;          game        : Game
+;          one-player? : Boolean
+;          two-player? : Boolean
+; interpretation: a Super Breakout control panel
+(define-struct ctrl-panel [serve? paddle-posn game one-player? two-player?])
+
+; a Breakout is (make-breakout loba lobr lop score high-score credit-count second-count ctrl-panel mode)
+;    where loba         : List<Ball>
+;          lobr         : List<Brick>
+;          lop          : List<Paddle>
+;          score        : NonnegativeInteger
+;          high-score   : NonnegativeInteger
+;          credit-count : NonnegativeInteger
+;          second-count : NonnegativeInteger
+;          ctrl-panel   : ControlPanel
+;          mode         : Mode
+; interpretation: Super Breakout with Balls 'loba',
+;                 Bricks 'lobr', Paddles 'lop', and
+;                 current Mode of operation 'mode'
+(define-struct breakout
+  [loba lobr lop score high-score credit-count second-count ctrl-panel mode])
+
+(define SCORE-0 0)
+(define HIGH-SCORE-0 0)
+(define CREDIT-COUNT-0 15)
+(define SECOND-COUNT-0 0)
+(define CTRL-PANEL-0 (make-ctrl-panel #true 0 "cavity" #false #false))
+(define MODE-0 "attract")
 
 ;;; Constants
 ;;;;;;;;;;;;;;
@@ -314,7 +375,13 @@
                  a-loba)))
     (make-breakout new-loba
                    (remove-bricks new-loba a-lobr)
-                   (breakout-lop a-brkt))))
+                   (breakout-lop a-brkt)
+                   (breakout-score a-brkt)
+                   (breakout-high-score a-brkt)
+                   (breakout-credit-count a-brkt)
+                   (breakout-second-count a-brkt)
+                   (breakout-ctrl-panel a-brkt)
+                   (breakout-mode a-brkt))))
 
 ; update-ball : Ball Breakout -> Ball
 ; update 'a-ball' for one clock tick given current Breakout 'a-brkt'
@@ -518,6 +585,15 @@
                      (make-ball (* PF-WIDTH 4/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
                      (make-ball (* PF-WIDTH 5/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)))
 ; Breakout
-(define BREAKOUT0 (make-breakout LOBA-0 LOBR-0 LOP-0))
+(define BREAKOUT-0
+  (make-breakout LOBA-0
+                 LOBR-0
+                 LOP-0
+                 SCORE-0
+                 HIGH-SCORE-0
+                 CREDIT-COUNT-0
+                 SECOND-COUNT-0
+                 CTRL-PANEL-0
+                 MODE-0))
 
-(run BREAKOUT0)
+(run BREAKOUT-0)
