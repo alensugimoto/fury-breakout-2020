@@ -9,292 +9,8 @@
 (require 2htdp/image)
 ; a library for making an interactive program
 (require 2htdp/universe)
-; a library for reading lines of files
+; a library for reading a bitmap font file
 (require 2htdp/batch-io)
-; a library for splitting strings into substrings
-(require racket/string)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;; Data types
-;;;;;;;;;;;;;;;
-
-; a Field is (make-field String Any)
-; interpretation: a field named 'name' with content 'content'
-(define-struct field [name content])
-
-; a Record is a List<Field>
-; interpretation: a list of Fields
-
-;;; Data examples
-;;;;;;;;;;;;;;;;;;
-
-; Fields
-
-(define F00 (make-field "date" "2012-02-12"))
-(define F01 (make-field "carrier" "AA"))
-(define F02 (make-field "number" "1176"))
-(define F03 (make-field "origin" "MIA"))
-(define F04 (make-field "destination" "BWI"))
-
-(define F10 (make-field "date" "2011-01-04"))
-(define F11 (make-field "carrier" "EV"))
-(define F12 (make-field "number" "5119"))
-(define F13 (make-field "origin" "ATL"))
-(define F14 (make-field "destination" "LEX"))
-
-(define F20 (make-field "date" "2012-02-23"))
-(define F21 (make-field "carrier" "EV"))
-(define F22 (make-field "number" "5059"))
-(define F23 (make-field "origin" "GNV"))
-(define F24 (make-field "destination" "ATL"))
-
-; Records
-
-(define R0 (list F00 F01 F02 F03 F04))
-(define R1 (list F10 F11 F12 F13 F14))
-(define R2 (list F20 F21 F22 F23 F24))
-
-; List<String>s
-
-(define LON '("date" "carrier" "number" "origin" "destination"))
-(define LOC0 '("2012-02-12" "AA" "1176" "MIA" "BWI"))
-(define LOC1 '("2011-01-04" "EV" "5119" "ATL" "LEX"))
-(define LOC2 '("2012-02-23" "EV" "5059" "GNV" "ATL"))
-
-;;; Function get-field
-;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Input/output
-; get-field : String Record -> Any
-; return the content of a Field named 'name' in 'record'
-;    if one exists; otherwise, return #false
-; header: (define (get-field name record) #false)
-
-;; Examples
-(check-expect (get-field "date"        R0) "2012-02-12")
-(check-expect (get-field "carrier"     R0) "AA")
-(check-expect (get-field "number"      R1) "5119")
-(check-expect (get-field "origin"      R1) "ATL")
-(check-expect (get-field "destination" R2) "ATL")
-(check-expect (get-field "flight"      R2) #false)
-
-;; Template
-; (define (get-field name record)
-;   (cond
-;     [(empty? record) (... name ... record ...)]
-;     [else
-;      (... name ... record ...
-;           (first record) ...
-;           (rest record) ...
-;           (field-name (first record)) ...
-;           (field-content (first record)) ...
-;           (get-field ... (rest record)) ...)]))
-
-;; Code
-(define (get-field name record)
-  (cond
-    [(empty? record) #false]
-    [else
-     (local (; the first Field in 'record'
-             (define first-field (first record)))
-       (if (string=? name (field-name first-field))
-           (field-content first-field)
-           (get-field name (rest record))))]))
-
-;;; Function list->record
-;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Input/output
-; list->record : List<String> List -> Record
-; require: 'lon' and 'loc' have the same number of elements
-; return a Record by pairing names 'lon' and contents 'loc' in order
-; header: (define (list->record lon loc) R0)
-
-;; Examples
-(check-expect (list->record LON LOC0) R0)
-(check-expect (list->record LON LOC1) R1)
-(check-expect (list->record LON LOC2) R2)
-
-;; Template
-; (define (list->record lon loc)
-;   (cond
-;     [(empty? lon) (... lon ... loc ...)]
-;     [else
-;      (... lon ... loc ...
-;           (first lon) ... (first loc) ...
-;           (rest lon) ... (rest loc) ...
-;           (list->record (rest lon) (rest loc)) ...)]))
-
-;; Code
-(define (list->record lon loc)
-  (cond
-    [(empty? lon) '()]
-    [else
-     (cons (make-field (first lon) (first loc))
-           (list->record (rest lon) (rest loc)))]))
-
-;;; Function read-csv
-;;;;;;;;;;;;;;;;;;;;;;
-
-;; Input/output
-; read-csv : String -> List<Record>
-; require: a CSV file named 'f' exists;
-;          the file is not empty; and
-;          each row of the file has the same number of values
-; return a list of Records in a CSV file named 'f'
-; header: (define (read-csv f) '())
-
-;; Examples
-;(check-expect (first (read-csv test-file)) R0)
-;(check-expect (first (rest (read-csv test-file))) R1)
-;(check-expect (first (first (read-csv test-file))) F00)
-;(check-expect (first (first (rest (read-csv test-file)))) F10)
-;(check-expect (length (read-csv test-file)) 1000)
-
-;; Template
-; (define (read-csv f)
-;   (... f ... (read-lines f) ...))
-
-;; Code
-(define (read-csv f)
-  (local (; a list of Strings, each of which
-          ;    correspond to a line in the CSV file named 'f'
-          (define lines (read-lines f))
-          ; string->list : String -> List<String>
-          ; return a list of substrings of 'str' that are
-          ;    separated by a comma
-          ; header: (define (string->list str) '())
-          (define (string->list str)
-            (string-split str ","))
-          ; a list of Field names, which is given in the CSV file's header
-          (define field-names (string->list (first lines))))
-    (list->vector
-     (map (lambda (line)
-            (list->record field-names (string->list line)))
-          (rest lines)))))
-
-(define (string->image str)
-  (char-list->image
-   (explode
-    (string-upcase str))))
-
-(define (char-list->image loc)
-  (cond
-    [(empty? loc) empty-image]
-    [(empty? (rest loc)) (char->image (first loc))]
-    [else
-     (beside (char->image (first loc))
-             (char-list->image (rest loc)))]))
-
-;(define (char->image c)
-;  (color-list->bitmap
-;    (char->color-list c)
-;    8 8))
-
-; get-first : [X -> Boolean] List<X> -> Maybe<X>
-; get the first element of list 'l' that satisfies predicate 'p?', if it exists;
-; otherwise, return #false
-(define (get-first p? l)
-  (cond
-    [(empty? l) #false]
-    [else
-     (local ((define first-l (first l)))
-       (if (p? first-l)
-           first-l
-           (get-first p? (rest l))))]))
-
-; name of CSV file containing a 8x8 monochrome bitmap font
-(define FONT-FILENAME "Super_Breakout_Font_8x8.csv")
-; list of character bitmaps
-(define CHAR-BITMAPS
-  (list->vector (read-csv-file/rows FONT-FILENAME char-bitmap)))
-
-; char-bitmap : List<Byte> -> Image
-(define (char-bitmap lob)
-  (color-list->bitmap
-   (map (lambda (bit) (if (string=? bit "1") "white" "black"))
-        (explode (apply string-append* lob)))
-   8 8))
-
-(define (hex->binary hex)
-  (string-replace
-   (string-replace
-    (string-replace
-     (string-replace
-      (string-replace
-       (string-replace
-        (string-replace
-         (string-replace
-          (string-replace
-           (string-replace
-            (string-replace
-             (string-replace
-              (string-replace
-               (string-replace
-                (string-replace
-                 (string-replace
-                  (string-replace hex "0x" "")
-                  "f" "1111")
-                 "e" "1110")
-                "d" "1101")
-               "c" "1100")
-              "b" "1011")
-             "a" "1010")
-            "9" "1001")
-           "8" "1000")
-          "7" "0111")
-         "6" "0110")
-        "5" "0101")
-       "4" "0100")
-      "3" "0011")
-     "2" "0010")
-    "1" "0001")
-   "0" "0000"))
-
-;(define (char->color-list c)
-;  (local ((define records
-;            (read-csv "char-bitmaps-v2.csv"))
-;          (define record
-;            (get-first (lambda (record)
-;                         (string=? c (get-field "char" record)))
-;                       records))
-;          (define (record->bits record)
-;            (build-string (* 8 8) (lambda (i) (string-ref (get-field (string-append "byte" (number->string (floor (/ i 8))))
-;                                                                     record)
-;                                                          (modulo i 8)))))
-;          (define bits (record->bits record)))
-;    (map (lambda (bit)
-;           (cond
-;             [(string=? bit "0") "black"]
-;             [(string=? bit "1") "white"]))
-;       (explode bits))))
-
-(define (char->image c)
-  (local ((define record (vector-ref CHAR-BITMAPS (string->int c)))
-          (define (record->bits record)
-            (build-list 8 (lambda (i) (explode (get-field (string-append "row" (number->string i))
-                                                          record)))))
-          (define bits (record->bits record)))
-    (bit-2d-list->bitmap bits)))
-
-(define (bit-2d-list->bitmap lolob)
-  (cond
-    [(empty? lolob) empty-image]
-    [else
-     (above (bit-1d-list->bitmap (first lolob))
-            (bit-2d-list->bitmap (rest lolob)))]))
-
-(define (bit-1d-list->bitmap lob)
-  (cond
-    [(empty? lob) empty-image]
-    [else
-     (beside (square 1 "solid"
-                     (if (string=? (first lob) "0")
-                         "black" "white"))
-             (bit-1d-list->bitmap (rest lob)))]))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Data types
 ;;;;;;;;;;;;;;;
@@ -311,6 +27,11 @@
 ; - 1                         ; one
 ; - (add1 NonnegativeInteger) : an Integer greater than one
 ; interpretation: a natural number
+
+; a Byte is a String containing the following 1-letter Strings:
+; - "0"
+; - "1"
+; interpretation: string of an 8-bit number
 
 ; an Angle is between (- pi) exclusive and pi inclusive
 ; interpretation: an angle in radians
@@ -430,11 +151,11 @@
 (define SPT 1/60)
 ; whether to debug or not
 (define DEBUG? #false)
-; bit width in pixels
-(define BIT-WIDTH 3)
+; scale factor for entire canvas
+(define SCALE-FACTOR 3)
 
 ; character block length in pixels
-(define CHAR-BLK-LENGTH (* 8 BIT-WIDTH))
+(define CHAR-BLK-LENGTH 8)
 
 ; number of columns in playfield
 (define PF-COL-COUNT 28)
@@ -537,8 +258,58 @@
            SIDEWALL-IMG)
    BG-IMG))
 
+;;; Font functions
+
+; byte-list->bitmap : List<Byte> -> Image
+; convert a list of Bytes to a bitmap
+(define (byte-list->bitmap lob)
+  (color-list->bitmap
+   (map (lambda (bit) (if (string=? bit "1") "white" "black"))
+        (explode (apply string-append lob)))
+   8 8))
+
+; name of CSV file containing a 8x8 monochrome bitmap font
+(define FONT-FILENAME "Super_Breakout_Font_8x8.csv")
+; list of character bitmaps
+(define CHAR-BITMAPS
+  (list->vector (read-csv-file/rows FONT-FILENAME byte-list->bitmap)))
+
+; string->bitmap : String -> Image
+; convert a string to a bitmap
+(define (string->bitmap str)
+  (1string-list->bitmap
+   (explode
+    (string-upcase str))))
+
+; 1string-list->bitmap : List<String> -> Image
+; convert a list of 1-letter strings to a bitmap
+(define (1string-list->bitmap strs)
+  (cond
+    [(empty? strs) empty-image]
+    [(empty? (rest strs)) (1string->bitmap (first strs))]
+    [else
+     (beside (1string->bitmap (first strs))
+             (1string-list->bitmap (rest strs)))]))
+
+; 1string->bitmap : String -> Image
+; convert a 1-letter string to a bitmap
+(define (1string->bitmap str)
+  (vector-ref CHAR-BITMAPS (string->int str)))
+
 ;;; Auxiliary functions
 ;;;;;;;;;;;;;;;;;;;;;;;;
+
+; get-first : [X -> Boolean] List<X> -> Maybe<X>
+; get the first element of list 'l' that satisfies predicate 'p?', if it exists;
+; otherwise, return #false
+(define (get-first p? l)
+  (cond
+    [(empty? l) #false]
+    [else
+     (local ((define first-l (first l)))
+       (if (p? first-l)
+           first-l
+           (get-first p? (rest l))))]))
 
 ; row->color : NonnegativeInteger -> Color
 ; convert row number 'row' into a Color
@@ -803,14 +574,17 @@
 ; render : Breakout -> Breakout
 ; a rendered breakout game 'a-brkt'
 (define (render a-brkt)
-  (render-balls (breakout-loba a-brkt)
-                (render-bricks (breakout-lobr a-brkt)
-                               ;(render-paddles (breakout-lop a-brkt)
-                                               (render-text
-                                               PF-IMG))))
+  (scale
+   SCALE-FACTOR
+   (render-balls (breakout-loba a-brkt)
+                 (render-bricks (breakout-lobr a-brkt)
+                                ;(render-paddles (breakout-lop a-brkt)
+                                (render-text
+                                 PF-IMG)))))
+  
 ; render-text : Image -> Image
 (define (render-text bg-img)
-  (place-image (scale 3 (string->image "1 COIN  1 PLAYER"))
+  (place-image (string->bitmap "1 COIN  1 PLAYER")
                (+ (col->x 10)
                   (/ BRICK-WIDTH 2))
                (+ (row->y 30)
