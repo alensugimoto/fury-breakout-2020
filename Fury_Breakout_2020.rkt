@@ -130,12 +130,13 @@
 ;                 Bricks 'lobr', Paddles 'lop', and
 ;                 current Mode of operation 'mode'
 (define-struct breakout
-  [loba lobr lop score high-score credit-count second-count ctrl-panel mode])
+  [loba lobr lop p1-score p2-score high-score credit-count second-count ctrl-panel mode])
 
 ;;; Constants
 ;;;;;;;;;;;;;;
 
-(define SCORE-0 0)
+(define P1-SCORE-0 0)
+(define P2-SCORE-0 0)
 (define HIGH-SCORE-0 0)
 (define CREDIT-COUNT-0 15)
 (define SECOND-COUNT-0 0)
@@ -397,6 +398,10 @@
                      (ball-tick-score a-ball))
                    a-loba))))
 
+; brick-point-value : Brick -> NonnegativeInteger
+(define (brick-point-value a-brick)
+  1)
+
 ;;; Tick handling
 ;;;;;;;;;;;;;;;;;;
 
@@ -437,17 +442,19 @@
                           new-loba))))
     (cond
       [(>= total-paddle-hit-count 50)
-       (switch-attract-game a-brkt)]
+       (switch-attract a-brkt)]
       [else
        (process-balls new-loba a-brkt)])))
 
-; switch-attract-game : Breakout -> Breakout
-(define (switch-attract-game a-brkt)
+; switch-attract : Breakout -> Breakout
+(define (switch-attract a-brkt)
   (local (; current Mode in 'a-brkt'
           (define a-mode (breakout-mode a-brkt))
           ; current Game in attract mode
           (define a-game (attract-game a-mode)))
     (cond
+      [(= 2 (attract-version a-mode))
+       ATTRACT-CAVITY-0]
       [(string=? a-game "cavity")
        ATTRACT-DOUBLE-0]
       [(string=? a-game "double")
@@ -459,12 +466,17 @@
 (define (process-balls new-loba a-brkt)
   (local (; current Bricks in 'a-brkt'
           (define a-lobr (breakout-lobr a-brkt))
-          ; current score in 'a-brkt'
-          (define a-score (breakout-score a-brkt)))
+          ; attract mode version
+          (define version (attract-version (breakout-mode a-brkt)))
+          ; current p1-score in 'a-brkt'
+          (define a-p1-score (breakout-p1-score a-brkt)))
     (make-breakout new-loba
-                   (update-bricks new-loba a-lobr)
+                   (if (= 1 version)
+                       (update-bricks new-loba a-lobr)
+                       a-lobr)
                    (breakout-lop a-brkt)
-                   (update-score new-loba a-score)
+                   (update-score new-loba a-p1-score)
+                   (breakout-p2-score a-brkt)
                    (breakout-high-score a-brkt)
                    (breakout-credit-count a-brkt)
                    (+ SPT (breakout-second-count a-brkt))
@@ -479,18 +491,17 @@
 ; update Breakout 'a-brkt' in ready-to-play mode given
 ;    a new list of Balls 'new-loba' for one clock tick
 (define (update-ready-to-play new-loba a-brkt)
-  (local (; current Bricks in 'a-brkt'
-          (define a-lobr (breakout-lobr a-brkt))
-          ; total paddle hit count of all the new balls
-          (define total-paddle-hit-count
-            (apply + (map (lambda (a-ball)
-                            (ball-paddle-hit-count a-ball))
-                          new-loba))))
+  (local (; current Control Panel in 'a-brkt'
+          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
+          ; current selected Game in 'a-brkt'
+          (define a-game (ctrl-panel-game a-ctrl-panel)))
     (cond
-      [(>= total-paddle-hit-count 50)
-       (switch-attract-game a-brkt)]
-      [else
-       (process-balls new-loba a-brkt)])))
+      [(string=? a-game "cavity")
+       READY-TO-PLAY-CAVITY-0]
+      [(string=? a-game "double")
+       READY-TO-PLAY-DOUBLE-0]
+      [(string=? a-game "progressive")
+       READY-TO-PLAY-PROGRESSIVE-0])))
 
 ;;;;;;;;;
 ;;; PLAY
@@ -545,7 +556,7 @@
                                (ball-speed a-ball)
                                (reflect-h (ball-dir a-ball))
                                (ball-last-vobject a-ball)
-                               (ball-tick-score a-ball)
+                               0
                                (ball-paddle-hit-count a-ball)
                                serve-delay
                                #true)]
@@ -555,7 +566,7 @@
                                (ball-speed a-ball)
                                (reflect-h (ball-dir a-ball))
                                (ball-last-vobject a-ball)
-                               (ball-tick-score a-ball)
+                               0
                                (ball-paddle-hit-count a-ball)
                                serve-delay
                                #true)]
@@ -565,7 +576,7 @@
                                (ball-speed a-ball)
                                (ball-dir a-ball)
                                (ball-last-vobject a-ball)
-                               (ball-tick-score a-ball)
+                               0
                                (ball-paddle-hit-count a-ball)
                                serve-delay
                                #true)]))
@@ -612,7 +623,7 @@
                        (ball-speed new-ball)
                        (reflect-v (ball-dir new-ball))
                        (ball-last-vobject new-ball)
-                       (ball-tick-score a-ball)
+                       0
                        (ball-paddle-hit-count new-ball)
                        serve-delay
                        #true)]
@@ -622,7 +633,7 @@
                        (ball-speed new-ball)
                        (reflect-v (ball-dir new-ball))
                        BACKWALL
-                       (ball-tick-score a-ball)
+                       0
                        (ball-paddle-hit-count new-ball)
                        serve-delay
                        #true)]
@@ -642,7 +653,7 @@
                        (ball-speed new-ball)
                        (get-dir x3 collided-paddle)
                        collided-paddle
-                       (ball-tick-score a-ball)
+                       0
                        (add1 (ball-paddle-hit-count new-ball))
                        serve-delay
                        #true)]
@@ -652,13 +663,10 @@
                        (ball-speed new-ball)
                        (ball-dir new-ball)
                        (ball-last-vobject new-ball)
-                       (ball-tick-score a-ball)
+                       0
                        (ball-paddle-hit-count new-ball)
                        serve-delay
                        #true)]))])))
-
-(define (brick-point-value a-brick)
-  1)
 
 ;;; Rendering
 ;;;;;;;;;;;;;;
@@ -737,28 +745,34 @@
                        (/ IBRICK-HEIGHT 2))
                     (render-paddles (rest a-lop) bg-img)))]))
 
-;(define (handle-key a-brkt key)
-;  (cond
-;    [(or (key=? " " key)
-;         (key=? "\r" key))
-;     (try-serve a-brkt)]
-;    [(or (key=? "left" key)
-;         (key=? "up" key)
-;         (key=? "a" key)
-;         (key=? "w" key))
-;     (try-switch-left-game a-brkt)]
-;    [(or (key=? "right" key)
-;         (key=? "bottom" key)
-;         (key=? "d" key)
-;         (key=? "s" key))
-;     (try-switch-right-game a-brkt)]
-;    [(key=? "1" key)
-;     (one-player a-brkt)]
-;    [(key=? "2" key)
-;     (two-player a-brkt)]))
-;
-;(define (handle-mouse a-brkt x y mouse)
-;  (try-update-paddles x a-brkt))
+;;; Key handling
+;;;;;;;;;;;;;;;;;
+
+; handle-key : Breakout KeyEvent -> Breakout
+(define (handle-key a-brkt key)
+  (cond
+    [(key=? " " key)
+     (try-serve a-brkt)]
+    [(key=? "\r" key)
+     (try-insert-coin a-brkt)]
+    [(or (key=? "left" key)
+         (key=? "up" key)
+         (key=? "a" key)
+         (key=? "w" key))
+     (try-switch-left-game a-brkt)]
+    [(or (key=? "right" key)
+         (key=? "bottom" key)
+         (key=? "d" key)
+         (key=? "s" key))
+     (try-switch-right-game a-brkt)]
+    [(key=? "1" key)
+     (one-player a-brkt)]
+    [(key=? "2" key)
+     (two-player a-brkt)]))
+
+; handle-mouse : Breakout Number Number MouseEvent -> Breakout
+(define (handle-mouse a-brkt x y mouse)
+  (try-update-paddles x a-brkt))
 
 ;;; Main function
 ;;;;;;;;;;;;;;;;;;
@@ -771,7 +785,7 @@
     [state DEBUG?]
     [to-draw render]))
 
-; List<Paddle>
+
 (define ATTRACT-PADDLES-0
   (build-list (/ (- PF-COL-COUNT 2) 2)
               (lambda (n) (make-paddle (col->x (+ (* 2 n) 1)) 29 0 0 BRICK-WIDTH))))
@@ -818,17 +832,22 @@
   (make-breakout '()
                  LOBR-0
                  ATTRACT-PADDLES-0
-                 SCORE-0
+                 P1-SCORE-0
+                 P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
                  SECOND-COUNT-0
                  CTRL-PANEL-0
                  MODE-0))
+
+;;; ATTRACT
+
 (define ATTRACT-CAVITY-0
   (make-breakout (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1 #false))
                  CAVITY-BRICKS-0
                  ATTRACT-PADDLES-0
-                 SCORE-0
+                 P1-SCORE-0
+                 P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
                  SECOND-COUNT-0
@@ -839,7 +858,8 @@
                        (make-ball (* PF-WIDTH 2/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1.5 #false))
                  DOUBLE-BRICKS-0
                  ATTRACT-PADDLES-0
-                 SCORE-0
+                 P1-SCORE-0
+                 P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
                  SECOND-COUNT-0
@@ -849,11 +869,49 @@
   (make-breakout (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1 #false))
                  PROGRESSIVE-BRICKS-0
                  ATTRACT-PADDLES-0
-                 SCORE-0
+                 P1-SCORE-0
+                 P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
                  SECOND-COUNT-0
                  CTRL-PANEL-0
                  (make-attract 1 "progressive")))
 
-(run ATTRACT-CAVITY-0)
+;;; READY-TO-PLAY
+
+(define READY-TO-PLAY-CAVITY-0
+  (make-breakout '()
+                 CAVITY-BRICKS-0
+                 (list (make-paddle (col->x 5) 29 0 0 BRICK-WIDTH))
+                 P1-SCORE-0
+                 P2-SCORE-0
+                 HIGH-SCORE-0
+                 CREDIT-COUNT-0
+                 SECOND-COUNT-0
+                 CTRL-PANEL-0
+                 (make-ready-to-play)))
+(define READY-TO-PLAY-DOUBLE-0
+  (make-breakout '()
+                 DOUBLE-BRICKS-0
+                 (list (make-paddle (col->x 5) 26 0 0 BRICK-WIDTH)
+                       (make-paddle (col->x 5) 29 0 0 BRICK-WIDTH))
+                 P1-SCORE-0
+                 P2-SCORE-0
+                 HIGH-SCORE-0
+                 CREDIT-COUNT-0
+                 SECOND-COUNT-0
+                 CTRL-PANEL-0
+                 (make-ready-to-play)))
+(define READY-TO-PLAY-PROGRESSIVE-0
+  (make-breakout '()
+                 PROGRESSIVE-BRICKS-0
+                 (list (make-paddle (col->x 5) 29 0 0 BRICK-WIDTH))
+                 P1-SCORE-0
+                 P2-SCORE-0
+                 HIGH-SCORE-0
+                 CREDIT-COUNT-0
+                 SECOND-COUNT-0
+                 CTRL-PANEL-0
+                 (make-ready-to-play)))
+
+(run READY-TO-PLAY-PROGRESSIVE-0)
