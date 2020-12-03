@@ -67,7 +67,7 @@
 ;                 with position ('x', 'y') in pixels,
 ;                 speed 'speed' in pixels per second,
 ;                 direction 'dir', and a paddle hit count of 'paddle-hit-count'
-(define-struct ball [x y speed dir last-vobject paddle-hit-count])
+(define-struct ball [x y speed dir last-vobject tick-score paddle-hit-count serve-delay visible?])
 
 ; a CollisionGeometry is (make-collision-geometry Number Number Number Number)
 ; interpretation: a rectangle with top left corner positioned at ('left', 'top')
@@ -78,14 +78,21 @@
 ; interpretation: a color overlay applied over rows 'i' inclusive to 'j' exclusive
 (define-struct color-overlay [c i j])
 
+; a Game is one of the following Strings:
+; - "double"
+; - "cavity"
+; - "progressive"
+; interpretation: the name of one of the three Super Breakout games
+;                 in Super Breakout
+
 ; an AttractVersion is either 1 or 2
 ; interpretation: an attract mode version in Super Breakout
 
-; an Attract is (make-attract AttractVersion)
+; an Attract is (make-attract AttractVersion Game)
 ; interpretaton: a Super Breakout mode called "attract"
-(define-struct attract [version])
+(define-struct attract [version game])
 
-; an ReadyToPlay is (make-ready-to-play)
+; a ReadyToPlay is (make-ready-to-play)
 ; interpretaton: a Super Breakout mode called "ready-to-play"
 (define-struct ready-to-play [])
 
@@ -94,17 +101,10 @@
 (define-struct play [])
 
 ; a Mode is one of the following Strings:
-; - "attract"
-; - "ready-to-play"
-; - "play"
-; interpretation: the name of one of the three different modes of operation
-;                 in Super Breakout
-
-; a Game is one of the following Strings:
-; - "double"
-; - "cavity"
-; - "progressive"
-; interpretation: the name of one of the three Super Breakout games
+; - an Attract
+; - a ReadyToPlay
+; - a Play
+; interpretation: one of the three different modes of operation
 ;                 in Super Breakout
 
 ; a ControlPanel is (make-ctrl-panel serve? paddle-posn game one-player? two-player?)
@@ -132,15 +132,15 @@
 (define-struct breakout
   [loba lobr lop score high-score credit-count second-count ctrl-panel mode])
 
+;;; Constants
+;;;;;;;;;;;;;;
+
 (define SCORE-0 0)
 (define HIGH-SCORE-0 0)
 (define CREDIT-COUNT-0 15)
 (define SECOND-COUNT-0 0)
 (define CTRL-PANEL-0 (make-ctrl-panel #true 0 "cavity" #false #false))
-(define MODE-0 "attract")
-
-;;; Constants
-;;;;;;;;;;;;;;
+(define MODE-0 (make-attract 1 "cavity"))
 
 ; seconds per clock tick
 (define SPT 1/30)
@@ -375,14 +375,27 @@
       [(and (< (+ left (* width 3/4)) x) (<= x (+ left (* width 4/4))))
        (* pi -1/4)])))
 
-; remove-bricks : List<Ball> List<Brick> -> List<Brick>
+; update-bricks : List<Ball> List<Brick> -> List<Brick>
 ; remove Bricks from a list of Bricks 'a-lobr' given a list of Balls 'a-loba'
-(define (remove-bricks a-loba a-lobr)
+(define (update-bricks a-loba a-lobr)
   (cond
     [(empty? a-loba) a-lobr]
     [else
-     (remove (ball-last-vobject (first a-loba))
-             (remove-bricks (rest a-loba) a-lobr))]))
+     (local (; first
+             (define first-ball (first a-loba))
+             ; rest
+             (define rest-loba (rest a-loba)))
+       (if (positive? (ball-tick-score first-ball))
+           (remove (ball-last-vobject first-ball)
+                   (update-bricks rest-loba a-lobr))
+           (update-bricks rest-loba a-lobr)))]))
+
+; update-score : List<Ball> NonnegativeInteger -> NonnegativeInteger
+(define (update-score a-loba a-score)
+  (+ a-score
+     (apply + (map (lambda (a-ball)
+                     (ball-tick-score a-ball))
+                   a-loba))))
 
 ;;; Tick handling
 ;;;;;;;;;;;;;;;;;;
@@ -390,46 +403,99 @@
 ; update : Breakout -> Breakout
 ; update Breakout 'a-brkt' for one clock tick
 (define (update a-brkt)
-  (local (; current Blocks in 'a-brkt'
-          (define a-lobr (breakout-lobr a-brkt))
-          ; current Balls in 'a-brkt'
+  (local (; current Balls in 'a-brkt'
           (define a-loba (breakout-loba a-brkt))
           ; current Mode in 'a-brkt'
           (define a-mode (breakout-mode a-brkt))
-          ; updated Balls
+          ; updated Balls after one tick with 'a-brkt'
           (define new-loba
             (map (lambda (a-ball)
                    (update-ball a-ball a-brkt))
                  a-loba)))
-;    (cond
-;      [(string=? a-mode "attract")
-;       (update-attract a-brkt)]
-;      [(string=? a-mode "ready-to-play")
-;       (update-ready-to-play a-brkt)]
-;      [(string=? a-mode "play")
-;       (update-play a-brkt)]
-       (make-breakout new-loba
-                      (remove-bricks new-loba a-lobr)
-                      (breakout-lop a-brkt)
-                      (breakout-score a-brkt)
-                      (breakout-high-score a-brkt)
-                      (breakout-credit-count a-brkt)
-                      (+ SPT (breakout-second-count a-brkt))
-                      (breakout-ctrl-panel a-brkt)
-                      (breakout-mode a-brkt))))
+    (cond
+      [(attract? a-mode)
+       (update-attract new-loba a-brkt)]
+      [(ready-to-play? a-mode)
+       (update-ready-to-play new-loba a-brkt)]
+      [(play? a-mode)
+       (process-balls new-loba a-brkt)])))
 
-;(define (update-attract a-brkt)
-;  (cond
-;    [(cavity?)
-;     (update-play-cavity a-brkt)]
-;    [(double?)
-;     (update-play-double a-brkt)]
-;    [(progressive?)
-;     (update-play-progressive a-brkt)]))
-;
-;(define (update-ready-to-play a-brkt)
-;  (...))
-;
+;;;;;;;;;;;;
+;;; ATTRACT
+;;;;;;;;;;;;
+
+; update-attract : List<Ball> Breakout -> Breakout
+; update Breakout 'a-brkt' in attract mode given
+;    a new list of Balls 'new-loba' for one clock tick
+(define (update-attract new-loba a-brkt)
+  (local (; current Bricks in 'a-brkt'
+          (define a-lobr (breakout-lobr a-brkt))
+          ; total paddle hit count of all the new balls
+          (define total-paddle-hit-count
+            (apply + (map (lambda (a-ball)
+                            (ball-paddle-hit-count a-ball))
+                          new-loba))))
+    (cond
+      [(>= total-paddle-hit-count 50)
+       (switch-attract-game a-brkt)]
+      [else
+       (process-balls new-loba a-brkt)])))
+
+; switch-attract-game : Breakout -> Breakout
+(define (switch-attract-game a-brkt)
+  (local (; current Mode in 'a-brkt'
+          (define a-mode (breakout-mode a-brkt))
+          ; current Game in attract mode
+          (define a-game (attract-game a-mode)))
+    (cond
+      [(string=? a-game "cavity")
+       ATTRACT-DOUBLE-0]
+      [(string=? a-game "double")
+       ATTRACT-PROGRESSIVE-0]
+      [(string=? a-game "progressive")
+       ATTRACT-CAVITY-0])))
+
+; process-balls : List<Ball> Breakout -> Breakout
+(define (process-balls new-loba a-brkt)
+  (local (; current Bricks in 'a-brkt'
+          (define a-lobr (breakout-lobr a-brkt))
+          ; current score in 'a-brkt'
+          (define a-score (breakout-score a-brkt)))
+    (make-breakout new-loba
+                   (update-bricks new-loba a-lobr)
+                   (breakout-lop a-brkt)
+                   (update-score new-loba a-score)
+                   (breakout-high-score a-brkt)
+                   (breakout-credit-count a-brkt)
+                   (+ SPT (breakout-second-count a-brkt))
+                   (breakout-ctrl-panel a-brkt)
+                   (breakout-mode a-brkt))))
+
+;;;;;;;;;;;;;;;;;;
+;;; READY-TO-PLAY
+;;;;;;;;;;;;;;;;;;
+
+; update-ready-to-play : List<Ball> Breakout -> Breakout
+; update Breakout 'a-brkt' in ready-to-play mode given
+;    a new list of Balls 'new-loba' for one clock tick
+(define (update-ready-to-play new-loba a-brkt)
+  (local (; current Bricks in 'a-brkt'
+          (define a-lobr (breakout-lobr a-brkt))
+          ; total paddle hit count of all the new balls
+          (define total-paddle-hit-count
+            (apply + (map (lambda (a-ball)
+                            (ball-paddle-hit-count a-ball))
+                          new-loba))))
+    (cond
+      [(>= total-paddle-hit-count 50)
+       (switch-attract-game a-brkt)]
+      [else
+       (process-balls new-loba a-brkt)])))
+
+;;;;;;;;;
+;;; PLAY
+;;;;;;;;;
+
 ;(define (update-play a-brkt)
 ;  (cond
 ;    [(cavity? (play-game a))
@@ -438,116 +504,161 @@
 ;     (update-play-double a-brkt)]
 ;    [(progressive? (play-game a))
 ;     (update-play-progressive a-brkt)]))
-  
+
+;;;;;;;;;;;;;;;;;;
+;;; BALL HANDLING
+;;;;;;;;;;;;;;;;;;
+
 ; update-ball : Ball Breakout -> Ball
 ; update 'a-ball' for one clock tick given current Breakout 'a-brkt'
 (define (update-ball a-ball a-brkt)
-  (local (; current Blocks in 'a-brkt'
-          (define a-lobr (breakout-lobr a-brkt))
-          ; current Paddles in 'a-brkt'
-          (define a-lop (breakout-lop a-brkt))
-          ; 'a-ball' initial position
-          (define x1 (ball-x a-ball))
-          (define y1 (ball-y a-ball))
-          ; 'a-ball' final position without collisions
-          (define x2 (+ x1 (ball-vx a-ball)))
-          (define y2 (+ y1 (ball-vy a-ball)))
-          ; updated 'a-ball' considering 'BALL-MIN-X' and 'BALL-MAX-X'
-          (define new-ball
-            (cond
-              ; right sidewall collision
-              [(>= x2 BALL-MAX-X)
-               (make-ball BALL-MAX-X y2
-                          (ball-speed a-ball)
-                          (reflect-h (ball-dir a-ball))
-                          (ball-last-vobject a-ball)
-                          (ball-paddle-hit-count a-ball))]
-              ; left sidewall collision
-              [(<= x2 BALL-MIN-X)
-               (make-ball BALL-MIN-X y2
-                          (ball-speed a-ball)
-                          (reflect-h (ball-dir a-ball))
-                          (ball-last-vobject a-ball)
-                          (ball-paddle-hit-count a-ball))]
-              ; no collision
-              [else
-               (make-ball x2 y2
-                          (ball-speed a-ball)
-                          (ball-dir a-ball)
-                          (ball-last-vobject a-ball)
-                          (ball-paddle-hit-count a-ball))]))
-          ; 'new-ball' position
-          (define x3 (ball-x new-ball))
-          (define y3 (ball-y new-ball))
-          ; brick-collision? : Brick -> Boolean
-          ; check whether 'new-ball' is in collision with 'a-brick'
-          (define (brick-collision? a-brick)
-            (local ((define a-collision-geometry (brick-collision-geometry a-brick))
-                    (define left (collision-geometry-left a-collision-geometry))
-                    (define top (collision-geometry-top a-collision-geometry))
-                    (define right (collision-geometry-right a-collision-geometry))
-                    (define bottom (collision-geometry-bottom a-collision-geometry))
-                    (define last-vobject (ball-last-vobject new-ball)))
-              (and (<= left x3 right)
-                   (<= top y3 bottom)
-                   (or (and (backwall? last-vobject)
-                            (< 1 (brick-row a-brick)))
-                       (and (paddle? last-vobject)
-                            (< 1 (abs (- (paddle-row last-vobject)
-                                         (brick-row a-brick)))))
-                       (and (brick? last-vobject)
-                            (< 3 (abs (- (brick-row last-vobject)
-                                         (brick-row a-brick)))))))))
-          ; paddle-collision? : Paddle -> Boolean
-          ; check whether 'new-ball' is in collision with 'a-paddle'
-          (define (paddle-collision? a-paddle)
-            (local ((define a-collision-geometry (paddle-collision-geometry a-paddle))
-                    (define left (collision-geometry-left a-collision-geometry))
-                    (define top (collision-geometry-top a-collision-geometry))
-                    (define right (collision-geometry-right a-collision-geometry))
-                    (define bottom (collision-geometry-bottom a-collision-geometry)))
-              (and (<= left x3 right)
-                   (<= top y3 bottom))))
-          ; brick that collided with 'new-ball', if any
-          (define collided-brick (get-first brick-collision? a-lobr))
-          ; paddle that collided with 'new-ball', if any
-          (define collided-paddle (get-first paddle-collision? a-lop)))
+  (local (; ball serve delay
+          (define serve-delay (ball-serve-delay a-ball)))
     (cond
-      ; bottom of playfield collision
-      [(> y3 BALL-MAX-Y)
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (reflect-v (ball-dir new-ball))
-                  (ball-last-vobject new-ball)
-                  (ball-paddle-hit-count new-ball))]
-      ; backwall collision
-      [(< y3 BALL-MIN-Y)
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (reflect-v (ball-dir new-ball))
-                  BACKWALL
-                  (ball-paddle-hit-count new-ball))]
-      ; brick collision
-      [(not (false? collided-brick))
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (reflect-v (ball-dir new-ball))
-                  collided-brick
-                  (ball-paddle-hit-count new-ball))]
-      ; paddle collision
-      [(not (false? collided-paddle))
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (get-dir x3 collided-paddle)
-                  collided-paddle
-                  (add1 (ball-paddle-hit-count new-ball)))]
-      ; no collision
+      [(positive? serve-delay)
+       (make-ball (ball-x a-ball)
+                  (ball-y a-ball)
+                  (ball-speed a-ball)
+                  (ball-dir a-ball)
+                  (ball-last-vobject a-ball)
+                  (ball-tick-score a-ball)
+                  (ball-paddle-hit-count a-ball)
+                  (- serve-delay SPT)
+                  (ball-visible? a-ball))]
       [else
-       (make-ball x3 y3
-                  (ball-speed new-ball)
-                  (ball-dir new-ball)
-                  (ball-last-vobject new-ball)
-                  (ball-paddle-hit-count new-ball))])))
+       (local (; current Blocks in 'a-brkt'
+               (define a-lobr (breakout-lobr a-brkt))
+               ; current Paddles in 'a-brkt'
+               (define a-lop (breakout-lop a-brkt))
+               ; 'a-ball' initial position
+               (define x1 (ball-x a-ball))
+               (define y1 (ball-y a-ball))
+               ; 'a-ball' final position without collisions
+               (define x2 (+ x1 (ball-vx a-ball)))
+               (define y2 (+ y1 (ball-vy a-ball)))
+               ; updated 'a-ball' considering 'BALL-MIN-X' and 'BALL-MAX-X'
+               (define new-ball
+                 (cond
+                   ; right sidewall collision
+                   [(>= x2 BALL-MAX-X)
+                    (make-ball BALL-MAX-X y2
+                               (ball-speed a-ball)
+                               (reflect-h (ball-dir a-ball))
+                               (ball-last-vobject a-ball)
+                               (ball-tick-score a-ball)
+                               (ball-paddle-hit-count a-ball)
+                               serve-delay
+                               #true)]
+                   ; left sidewall collision
+                   [(<= x2 BALL-MIN-X)
+                    (make-ball BALL-MIN-X y2
+                               (ball-speed a-ball)
+                               (reflect-h (ball-dir a-ball))
+                               (ball-last-vobject a-ball)
+                               (ball-tick-score a-ball)
+                               (ball-paddle-hit-count a-ball)
+                               serve-delay
+                               #true)]
+                   ; no collision
+                   [else
+                    (make-ball x2 y2
+                               (ball-speed a-ball)
+                               (ball-dir a-ball)
+                               (ball-last-vobject a-ball)
+                               (ball-tick-score a-ball)
+                               (ball-paddle-hit-count a-ball)
+                               serve-delay
+                               #true)]))
+               ; 'new-ball' position
+               (define x3 (ball-x new-ball))
+               (define y3 (ball-y new-ball))
+               ; brick-collision? : Brick -> Boolean
+               ; check whether 'new-ball' is in collision with 'a-brick'
+               (define (brick-collision? a-brick)
+                 (local ((define a-collision-geometry (brick-collision-geometry a-brick))
+                         (define left (collision-geometry-left a-collision-geometry))
+                         (define top (collision-geometry-top a-collision-geometry))
+                         (define right (collision-geometry-right a-collision-geometry))
+                         (define bottom (collision-geometry-bottom a-collision-geometry))
+                         (define last-vobject (ball-last-vobject new-ball)))
+                   (and (<= left x3 right)
+                        (<= top y3 bottom)
+                        (or (and (backwall? last-vobject)
+                                 (< 1 (brick-row a-brick)))
+                            (and (paddle? last-vobject)
+                                 (< 1 (abs (- (paddle-row last-vobject)
+                                              (brick-row a-brick)))))
+                            (and (brick? last-vobject)
+                                 (< 3 (abs (- (brick-row last-vobject)
+                                              (brick-row a-brick)))))))))
+               ; paddle-collision? : Paddle -> Boolean
+               ; check whether 'new-ball' is in collision with 'a-paddle'
+               (define (paddle-collision? a-paddle)
+                 (local ((define a-collision-geometry (paddle-collision-geometry a-paddle))
+                         (define left (collision-geometry-left a-collision-geometry))
+                         (define top (collision-geometry-top a-collision-geometry))
+                         (define right (collision-geometry-right a-collision-geometry))
+                         (define bottom (collision-geometry-bottom a-collision-geometry)))
+                   (and (<= left x3 right)
+                        (<= top y3 bottom))))
+               ; brick that collided with 'new-ball', if any
+               (define collided-brick (get-first brick-collision? a-lobr))
+               ; paddle that collided with 'new-ball', if any
+               (define collided-paddle (get-first paddle-collision? a-lop)))
+         (cond
+           ; bottom of playfield collision
+           [(> y3 BALL-MAX-Y)
+            (make-ball x3 y3
+                       (ball-speed new-ball)
+                       (reflect-v (ball-dir new-ball))
+                       (ball-last-vobject new-ball)
+                       (ball-tick-score a-ball)
+                       (ball-paddle-hit-count new-ball)
+                       serve-delay
+                       #true)]
+           ; backwall collision
+           [(< y3 BALL-MIN-Y)
+            (make-ball x3 y3
+                       (ball-speed new-ball)
+                       (reflect-v (ball-dir new-ball))
+                       BACKWALL
+                       (ball-tick-score a-ball)
+                       (ball-paddle-hit-count new-ball)
+                       serve-delay
+                       #true)]
+           ; brick collision
+           [(not (false? collided-brick))
+            (make-ball x3 y3
+                       (ball-speed new-ball)
+                       (reflect-v (ball-dir new-ball))
+                       collided-brick
+                       (brick-point-value collided-brick)
+                       (ball-paddle-hit-count new-ball)
+                       serve-delay
+                       #true)]
+           ; paddle collision
+           [(not (false? collided-paddle))
+            (make-ball x3 y3
+                       (ball-speed new-ball)
+                       (get-dir x3 collided-paddle)
+                       collided-paddle
+                       (ball-tick-score a-ball)
+                       (add1 (ball-paddle-hit-count new-ball))
+                       serve-delay
+                       #true)]
+           ; no collision
+           [else
+            (make-ball x3 y3
+                       (ball-speed new-ball)
+                       (ball-dir new-ball)
+                       (ball-last-vobject new-ball)
+                       (ball-tick-score a-ball)
+                       (ball-paddle-hit-count new-ball)
+                       serve-delay
+                       #true)]))])))
+
+(define (brick-point-value a-brick)
+  1)
 
 ;;; Rendering
 ;;;;;;;;;;;;;;
@@ -661,8 +772,9 @@
     [to-draw render]))
 
 ; List<Paddle>
-(define LOP-0 (build-list (/ (- PF-COL-COUNT 2) 2)
-                          (lambda (n) (make-paddle (col->x (+ (* 2 n) 1)) 29 0 0 BRICK-WIDTH))))
+(define ATTRACT-PADDLES-0
+  (build-list (/ (- PF-COL-COUNT 2) 2)
+              (lambda (n) (make-paddle (col->x (+ (* 2 n) 1)) 29 0 0 BRICK-WIDTH))))
 ; List<Block>
 (define LOBR-0 (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 1)))
                        (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 2)))
@@ -700,21 +812,48 @@
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
 ; List<Ball>
-(define LOBA-0 (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 2/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 3/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 4/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 5/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)))
+(define LOBA-0 (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 500 (/ pi 4) BACKWALL 0 0 0 #true)))
 ; Breakout
 (define BREAKOUT-0
-  (make-breakout LOBA-0
+  (make-breakout '()
                  LOBR-0
-                 LOP-0
+                 ATTRACT-PADDLES-0
                  SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
                  SECOND-COUNT-0
                  CTRL-PANEL-0
                  MODE-0))
+(define ATTRACT-CAVITY-0
+  (make-breakout (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1 #false))
+                 CAVITY-BRICKS-0
+                 ATTRACT-PADDLES-0
+                 SCORE-0
+                 HIGH-SCORE-0
+                 CREDIT-COUNT-0
+                 SECOND-COUNT-0
+                 CTRL-PANEL-0
+                 (make-attract 1 "cavity")))
+(define ATTRACT-DOUBLE-0
+  (make-breakout (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1 #false)
+                       (make-ball (* PF-WIDTH 2/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1.5 #false))
+                 DOUBLE-BRICKS-0
+                 ATTRACT-PADDLES-0
+                 SCORE-0
+                 HIGH-SCORE-0
+                 CREDIT-COUNT-0
+                 SECOND-COUNT-0
+                 CTRL-PANEL-0
+                 (make-attract 1 "double")))
+(define ATTRACT-PROGRESSIVE-0
+  (make-breakout (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1 #false))
+                 PROGRESSIVE-BRICKS-0
+                 ATTRACT-PADDLES-0
+                 SCORE-0
+                 HIGH-SCORE-0
+                 CREDIT-COUNT-0
+                 SECOND-COUNT-0
+                 CTRL-PANEL-0
+                 (make-attract 1 "progressive")))
 
-(run BREAKOUT-0)
+(run ATTRACT-CAVITY-0)
