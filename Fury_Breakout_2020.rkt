@@ -23,17 +23,12 @@
 ; - (add1 NonnegativeInteger) : a positive Integer
 ; interpretation: a non-negative integer
 
-; a Natural is one of the following:
-; - 1                         ; one
-; - (add1 NonnegativeInteger) : an Integer greater than one
-; interpretation: a natural number
-
 ; a Byte is a String containing the following 1-letter Strings:
 ; - "0"
 ; - "1"
 ; interpretation: string of an 8-bit number
 
-; an Angle is between (- pi) exclusive and pi inclusive
+; an Angle is a Number between (- pi) exclusive and pi inclusive
 ; interpretation: an angle in radians
 
 ; a Brick is (make-brick NonnegativeInteger NonnegativeInteger)
@@ -148,13 +143,13 @@
 ;;;;;;;;;;;;;;
 
 ; seconds per clock tick
-(define SPT 1/60)
+(define SPT 1/30)
 ; whether to debug or not
 (define DEBUG? #false)
 ; scale factor for entire canvas
 (define SCALE-FACTOR 3)
 
-; character block length in pixels
+; character block side length in pixels
 (define CHAR-BLK-LENGTH 8)
 
 ; number of columns in playfield
@@ -216,47 +211,33 @@
 ;;; Images
 ;;;;;;;;;;;
 
-; background image
-(define BG-IMG (rectangle PF-WIDTH PF-HEIGHT "solid" BG-COLOR))
-; backwall length
-(define BACKWALL-LENGTH (- PF-WIDTH PF-SPACING (* 2 WALL-THICKNESS)))
-; backwall image
-(define BACKWALL-IMG (rectangle BACKWALL-LENGTH
-                                WALL-THICKNESS
-                                "solid"
-                                (color-overlay-c (first FG-COLORS))))
-; sidewall image
-(define SIDEWALL-IMG
-  (local ((define (generate-sidewall-img/acc loc img)
-            (cond
-              [(empty? loc) img]
-              [else
-               (local ((define a-color-overlay (first loc))
-                       (define a-c (color-overlay-c a-color-overlay))
-                       (define a-i (color-overlay-i a-color-overlay))
-                       (define a-j (color-overlay-j a-color-overlay)))
-                 (above img
-                        (generate-sidewall-img/acc
-                         (rest loc)
-                         (rectangle WALL-THICKNESS
-                                    (if (zero? a-i)
-                                        (- (* (- a-j a-i) BRICK-HEIGHT) (/ PF-SPACING 2))
-                                        (* (- a-j a-i) BRICK-HEIGHT))
-                                    "solid" a-c))))])))
-    (generate-sidewall-img/acc FG-COLORS empty-image)))
+; overlay image
+(define OVERLAY-IMG
+  (freeze
+   (apply
+    above
+    (map (lambda (a-color-overlay)
+           (local ((define a-c (color-overlay-c a-color-overlay))
+                   (define a-i (color-overlay-i a-color-overlay))
+                   (define a-j (color-overlay-j a-color-overlay)))
+             (rectangle PF-WIDTH
+                        (* (- a-j a-i) BRICK-HEIGHT)
+                        "solid" a-c)))
+         FG-COLORS))))
+
 ; playfield image
 (define PF-IMG
-  (overlay/align
-   "center" "bottom"
-   (beside SIDEWALL-IMG
-           (overlay/align
-            "center" "top"
-            BACKWALL-IMG
-            (rectangle BACKWALL-LENGTH
-                       (image-height SIDEWALL-IMG)
-                       "solid" "transparent"))
-           SIDEWALL-IMG)
-   BG-IMG))
+  (freeze
+   (overlay/align
+    "center" "bottom"
+    (rectangle (- PF-WIDTH PF-SPACING (* 2 WALL-THICKNESS))
+               (- PF-HEIGHT WALL-THICKNESS (/ PF-SPACING 2))
+               "solid" BG-COLOR)
+    (crop/align "center" "bottom"
+                (- PF-WIDTH PF-SPACING)
+                (- PF-HEIGHT (/ PF-SPACING 2))
+                OVERLAY-IMG)
+    (rectangle PF-WIDTH PF-HEIGHT "solid" BG-COLOR))))
 
 ;;; Font functions
 
@@ -578,10 +559,9 @@
    SCALE-FACTOR
    (render-balls (breakout-loba a-brkt)
                  (render-bricks (breakout-lobr a-brkt)
-                                ;(render-paddles (breakout-lop a-brkt)
-                                (render-text
-                                 PF-IMG)))))
-  
+                                (render-paddles (breakout-lop a-brkt)
+                                                (render-text PF-IMG))))))
+
 ; render-text : Image -> Image
 (define (render-text bg-img)
   (place-image (string->bitmap "1 COIN  1 PLAYER")
@@ -599,10 +579,11 @@
     [else
      (local (; first Brick in 'a-lobr'
              (define a-brick (first a-lobr)))
-       (place-image (rectangle IBRICK-WIDTH
-                               IBRICK-HEIGHT
-                               "solid"
-                               (row->color (brick-row a-brick)))
+       (place-image (freeze (+ (col->x (brick-col a-brick)) (/ PF-SPACING 2))
+                            (+ (row->y (brick-row a-brick)) (/ PF-SPACING 2))
+                            IBRICK-WIDTH
+                            IBRICK-HEIGHT
+                            OVERLAY-IMG)
                     (+ (col->x (brick-col a-brick))
                        (/ BRICK-WIDTH 2))
                     (+ (row->y (brick-row a-brick))
@@ -617,9 +598,11 @@
     [else
      (local (; first Ball in 'a-loba'
              (define a-ball (first a-loba)))
-       (place-image (square (* 2 BALL-RADIUS)
-                            "solid"
-                            "white")
+       (place-image (freeze (- (ball-x a-ball) BALL-RADIUS)
+                            (- (ball-y a-ball) BALL-RADIUS)
+                            (* 2 BALL-RADIUS)
+                            (* 2 BALL-RADIUS)
+                            OVERLAY-IMG)
                     (ball-x a-ball)
                     (ball-y a-ball)
                     (render-balls (rest a-loba) bg-img)))]))
@@ -632,10 +615,11 @@
     [else
      (local (; first Paddle in 'a-lop'
              (define a-paddle (first a-lop)))
-       (place-image (rectangle (- (paddle-width a-paddle) PF-SPACING)
-                               IBRICK-HEIGHT
-                               "solid"
-                               (row->color (paddle-row a-paddle)))
+       (place-image (freeze (+ (paddle-x a-paddle) (/ PF-SPACING 2))
+                            (row->y (paddle-row a-paddle))
+                            (- (paddle-width a-paddle) PF-SPACING)
+                            IBRICK-HEIGHT
+                            OVERLAY-IMG)
                     (+ (paddle-x a-paddle)
                        (/ (paddle-width a-paddle) 2))
                     (+ (row->y (paddle-row a-paddle))
@@ -716,11 +700,11 @@
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
 ; List<Ball>
-(define LOBA-0 (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 2/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 3/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 4/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)
-                     (make-ball (* PF-WIDTH 5/6) (row->y 22) 900 (/ pi 4) BACKWALL 0)))
+(define LOBA-0 (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 2/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 3/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 4/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)
+                     (make-ball (* PF-WIDTH 5/6) (row->y 22) 500 (/ pi 4) BACKWALL 0)))
 ; Breakout
 (define BREAKOUT-0
   (make-breakout LOBA-0
