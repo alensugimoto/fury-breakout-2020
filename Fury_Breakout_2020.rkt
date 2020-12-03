@@ -94,7 +94,7 @@
 
 ; a ReadyToPlay is (make-ready-to-play)
 ; interpretaton: a Super Breakout mode called "ready-to-play"
-(define-struct ready-to-play [])
+(define-struct ready-to-play [game])
 
 ; a Play is (make-play)
 ; interpretaton: a Super Breakout mode called "play"
@@ -116,21 +116,21 @@
 ; interpretation: a Super Breakout control panel
 (define-struct ctrl-panel [serve? paddle-posn game one-player? two-player?])
 
-; a Breakout is (make-breakout loba lobr lop score high-score credit-count second-count ctrl-panel mode)
+; a Breakout is (make-breakout loba lobr lop score high-score credit-count tick-count ctrl-panel mode)
 ;    where loba         : List<Ball>
 ;          lobr         : List<Brick>
 ;          lop          : List<Paddle>
 ;          score        : NonnegativeInteger
 ;          high-score   : NonnegativeInteger
 ;          credit-count : NonnegativeInteger
-;          second-count : NonnegativeInteger
+;          tick-count   : NonnegativeInteger
 ;          ctrl-panel   : ControlPanel
 ;          mode         : Mode
 ; interpretation: Super Breakout with Balls 'loba',
 ;                 Bricks 'lobr', Paddles 'lop', and
 ;                 current Mode of operation 'mode'
 (define-struct breakout
-  [loba lobr lop p1-score p2-score high-score credit-count second-count ctrl-panel mode])
+  [loba lobr lop p1-score p2-score high-score credit-count tick-count player-count mode])
 
 ;;; Constants
 ;;;;;;;;;;;;;;
@@ -138,9 +138,10 @@
 (define P1-SCORE-0 0)
 (define P2-SCORE-0 0)
 (define HIGH-SCORE-0 0)
-(define CREDIT-COUNT-0 15)
-(define SECOND-COUNT-0 0)
+(define CREDIT-COUNT-0 0)
+(define TICK-COUNT-0 0)
 (define CTRL-PANEL-0 (make-ctrl-panel #true 0 "cavity" #false #false))
+(define PLAYER-COUNT-0 1)
 (define MODE-0 (make-attract 1 "cavity"))
 
 ; seconds per clock tick
@@ -151,7 +152,7 @@
 (define SCALE-FACTOR 3)
 
 ; character block side length in pixels
-(define CHAR-BLK-LENGTH 8)
+(define CHAR-BLK-LENGTH (* 8 SCALE-FACTOR))
 
 ; number of columns in playfield
 (define PF-COL-COUNT 28)
@@ -239,44 +240,6 @@
                 (- PF-HEIGHT (/ PF-SPACING 2))
                 OVERLAY-IMG)
     (rectangle PF-WIDTH PF-HEIGHT "solid" BG-COLOR))))
-
-;;; Font functions
-
-; byte-list->bitmap : List<Byte> -> Image
-; convert a list of Bytes to a bitmap
-(define (byte-list->bitmap lob)
-  (color-list->bitmap
-   (map (lambda (bit) (if (string=? bit "1") "white" "black"))
-        (explode (apply string-append lob)))
-   8 8))
-
-; name of CSV file containing a 8x8 monochrome bitmap font
-(define FONT-FILENAME "Super_Breakout_Font_8x8.csv")
-; list of character bitmaps
-(define CHAR-BITMAPS
-  (list->vector (read-csv-file/rows FONT-FILENAME byte-list->bitmap)))
-
-; string->bitmap : String -> Image
-; convert a string to a bitmap
-(define (string->bitmap str)
-  (1string-list->bitmap
-   (explode
-    (string-upcase str))))
-
-; 1string-list->bitmap : List<String> -> Image
-; convert a list of 1-letter strings to a bitmap
-(define (1string-list->bitmap strs)
-  (cond
-    [(empty? strs) empty-image]
-    [(empty? (rest strs)) (1string->bitmap (first strs))]
-    [else
-     (beside (1string->bitmap (first strs))
-             (1string-list->bitmap (rest strs)))]))
-
-; 1string->bitmap : String -> Image
-; convert a 1-letter string to a bitmap
-(define (1string->bitmap str)
-  (vector-ref CHAR-BITMAPS (string->int str)))
 
 ;;; Auxiliary functions
 ;;;;;;;;;;;;;;;;;;;;;;;;
@@ -402,6 +365,52 @@
 (define (brick-point-value a-brick)
   1)
 
+;;; Font functions
+
+; byte-list->bitmap : List<Byte> -> Image
+; convert a list of Bytes to a bitmap
+(define (byte-list->bitmap color lob)
+  (scale
+   SCALE-FACTOR
+   (color-list->bitmap
+    (map (lambda (bit) (if (string=? bit "1") color "black"))
+         (explode (apply string-append lob)))
+    8 8)))
+
+; name of CSV file containing a 8x8 monochrome bitmap font
+(define FONT-FILENAME "Super_Breakout_Font_8x8.csv")
+; list of character bitmaps
+(define CHAR-BITMAPS
+  (build-vector PF-ROW-COUNT
+                (lambda (i)
+                  (list->vector
+                   (read-csv-file/rows FONT-FILENAME
+                                       (lambda (lob)
+                                         (byte-list->bitmap (row->color i) lob)))))))
+
+; string->bitmap : String -> Image
+; convert a string to a bitmap
+(define (string->bitmap row str)
+  (1string-list->bitmap
+   row
+   (explode
+    (string-upcase str))))
+
+; 1string-list->bitmap : List<String> -> Image
+; convert a list of 1-letter strings to a bitmap
+(define (1string-list->bitmap row strs)
+  (cond
+    [(empty? (rest strs))
+     (1string->bitmap row (first strs))]
+    [else
+     (beside (1string->bitmap row (first strs))
+             (1string-list->bitmap row (rest strs)))]))
+
+; 1string->bitmap : String -> Image
+; convert a 1-letter string to a bitmap
+(define (1string->bitmap row str)
+  (vector-ref (vector-ref CHAR-BITMAPS row) (string->int str)))
+
 ;;; Tick handling
 ;;;;;;;;;;;;;;;;;;
 
@@ -475,12 +484,12 @@
                        (update-bricks new-loba a-lobr)
                        a-lobr)
                    (breakout-lop a-brkt)
-                   (update-score new-loba a-p1-score)
+                   (breakout-p1-score a-brkt)
                    (breakout-p2-score a-brkt)
                    (breakout-high-score a-brkt)
                    (breakout-credit-count a-brkt)
-                   (+ SPT (breakout-second-count a-brkt))
-                   (breakout-ctrl-panel a-brkt)
+                   (add1 (breakout-tick-count a-brkt))
+                   (breakout-player-count a-brkt)
                    (breakout-mode a-brkt))))
 
 ;;;;;;;;;;;;;;;;;;
@@ -491,10 +500,10 @@
 ; update Breakout 'a-brkt' in ready-to-play mode given
 ;    a new list of Balls 'new-loba' for one clock tick
 (define (update-ready-to-play new-loba a-brkt)
-  (local (; current Control Panel in 'a-brkt'
-          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
-          ; current selected Game in 'a-brkt'
-          (define a-game (ctrl-panel-game a-ctrl-panel)))
+  (local (; current Mode in 'a-brkt'
+          (define a-mode (breakout-mode a-brkt))
+          ; current Game in ready-to-play mode
+          (define a-game (ready-to-play-game a-mode)))
     (cond
       [(string=? a-game "cavity")
        READY-TO-PLAY-CAVITY-0]
@@ -502,6 +511,27 @@
        READY-TO-PLAY-DOUBLE-0]
       [(string=? a-game "progressive")
        READY-TO-PLAY-PROGRESSIVE-0])))
+
+(define (switch-ready-to-play dir a-brkt)
+  (local (; current Mode in 'a-brkt'
+          (define a-mode (breakout-mode a-brkt))
+          ; current Game in ready-to-play mode
+          (define a-game (ready-to-play-game a-mode)))
+    (if (string=? dir "next")
+        (cond
+          [(string=? a-game "double")
+           a-brkt]
+          [(string=? a-game "cavity")
+           READY-TO-PLAY-DOUBLE-0]
+          [(string=? a-game "progressive")
+           READY-TO-PLAY-CAVITY-0])
+        (cond
+          [(string=? a-game "double")
+           READY-TO-PLAY-CAVITY-0]
+          [(string=? a-game "cavity")
+           READY-TO-PLAY-PROGRESSIVE-0]
+          [(string=? a-game "progressive")
+           a-brkt]))))
 
 ;;;;;;;;;
 ;;; PLAY
@@ -671,24 +701,84 @@
 ;;; Rendering
 ;;;;;;;;;;;;;;
 
-; render : Breakout -> Breakout
+; render : Breakout -> Image
 ; a rendered breakout game 'a-brkt'
 (define (render a-brkt)
-  (scale
-   SCALE-FACTOR
-   (render-balls (breakout-loba a-brkt)
-                 (render-bricks (breakout-lobr a-brkt)
-                                (render-paddles (breakout-lop a-brkt)
-                                                (render-text PF-IMG))))))
+  (render-balls (breakout-loba a-brkt)
+                (render-bricks (breakout-lobr a-brkt)
+                               (local (; current Mode in 'a-brkt'
+                                       (define a-mode (breakout-mode a-brkt)))
+                                 (cond
+                                   [(attract? a-mode)
+                                    (render-attract a-brkt)]
+                                   [(ready-to-play? a-mode)
+                                    (render-ready-to-play a-brkt)]
+                                   [(play? a-mode)
+                                    (render-play a-brkt)])))))
 
-; render-text : Image -> Image
-(define (render-text bg-img)
-  (place-image (string->bitmap "1 COIN  1 PLAYER")
-               (+ (col->x 10)
-                  (/ BRICK-WIDTH 2))
-               (+ (row->y 30)
-                  (/ BRICK-HEIGHT 2))
-               bg-img))
+; render-attract : Breakout -> Image
+(define (render-attract a-brkt)
+  (render-p1-score (breakout-p1-score a-brkt)
+                   (render-p2-score (breakout-p2-score a-brkt)
+                                    (render-coin-mode (breakout-tick-count a-brkt)
+                                                      PF-IMG))))
+
+; render-ready-to-play : Breakout -> Image
+(define (render-ready-to-play a-brkt)
+  (render-paddles (breakout-lop a-brkt)
+                  (render-coin-mode (breakout-tick-count a-brkt)
+                                    PF-IMG)))
+
+; render-play : Breakout -> Image
+(define (render-play a-brkt)
+  (render-paddles (breakout-lop a-brkt)
+                  (render-coin-mode PF-IMG)))
+
+;;; Image helpers
+
+; render-coin-mode : Image -> Image
+(define (render-coin-mode tick-count bg-img)
+  (if (<= 0 (modulo tick-count (/ 2 SPT)) (- (/ 1 SPT) 1))
+      bg-img
+      (place-image/align (string->bitmap 30 "1 COIN  1 PLAYER")
+                         (col->x 21)
+                         (row->y 30)
+                         "right" "top"
+                         bg-img)))
+
+; render-p1-score : Image -> Image
+(define (render-p1-score a-score bg-img)
+  (local (; string
+          (define score-string (number->string a-score))
+          ; new string based on Super Breakout
+          (define atari-score-string
+            (if (= 1 (string-length score-string))
+                (string-append "0" score-string)
+                score-string))
+          ; bitmap of score
+          (define score-bitmap (string->bitmap 31 atari-score-string)))
+    (place-image/align score-bitmap
+                       (col->x 7)
+                       (row->y 31)
+                       "right" "top"
+                       bg-img)))
+
+; render-p2-score : Image -> Image
+(define (render-p2-score a-score bg-img)
+  (local (; string
+          (define score-string (number->string a-score))
+          ; new string based on Super Breakout
+          (define atari-score-string
+            (if (= 1 (string-length score-string))
+                (string-append "0" score-string)
+                score-string))
+          ; bitmap of score
+          (define score-bitmap (string->bitmap 31 atari-score-string)))
+    (place-image/align score-bitmap
+                       (col->x 25)
+                       (row->y 31)
+                       "right" "top"
+                       bg-img)))
 
 ; render-blocks : List<Block> Image -> Image
 ; a 'bg-img' with Bricks 'a-lobr' placed on it
@@ -698,11 +788,11 @@
     [else
      (local (; first Brick in 'a-lobr'
              (define a-brick (first a-lobr)))
-       (place-image (freeze (+ (col->x (brick-col a-brick)) (/ PF-SPACING 2))
-                            (+ (row->y (brick-row a-brick)) (/ PF-SPACING 2))
-                            IBRICK-WIDTH
-                            IBRICK-HEIGHT
-                            OVERLAY-IMG)
+       (place-image (crop (+ (col->x (brick-col a-brick)) (/ PF-SPACING 2))
+                          (+ (row->y (brick-row a-brick)) (/ PF-SPACING 2))
+                          IBRICK-WIDTH
+                          IBRICK-HEIGHT
+                          OVERLAY-IMG)
                     (+ (col->x (brick-col a-brick))
                        (/ BRICK-WIDTH 2))
                     (+ (row->y (brick-row a-brick))
@@ -717,14 +807,16 @@
     [else
      (local (; first Ball in 'a-loba'
              (define a-ball (first a-loba)))
-       (place-image (freeze (- (ball-x a-ball) BALL-RADIUS)
-                            (- (ball-y a-ball) BALL-RADIUS)
-                            (* 2 BALL-RADIUS)
-                            (* 2 BALL-RADIUS)
-                            OVERLAY-IMG)
-                    (ball-x a-ball)
-                    (ball-y a-ball)
-                    (render-balls (rest a-loba) bg-img)))]))
+       (if (ball-visible? a-ball)
+           (place-image (crop (- (ball-x a-ball) BALL-RADIUS)
+                              (- (ball-y a-ball) BALL-RADIUS)
+                              (* 2 BALL-RADIUS)
+                              (* 2 BALL-RADIUS)
+                              OVERLAY-IMG)
+                        (ball-x a-ball)
+                        (ball-y a-ball)
+                        (render-balls (rest a-loba) bg-img))
+           (render-balls (rest a-loba) bg-img)))]))
 
 ; render-paddles : List<Paddle> Image -> Image
 ; a 'bg-img' with Paddles 'a-lop' placed on it
@@ -734,11 +826,11 @@
     [else
      (local (; first Paddle in 'a-lop'
              (define a-paddle (first a-lop)))
-       (place-image (freeze (+ (paddle-x a-paddle) (/ PF-SPACING 2))
-                            (row->y (paddle-row a-paddle))
-                            (- (paddle-width a-paddle) PF-SPACING)
-                            IBRICK-HEIGHT
-                            OVERLAY-IMG)
+       (place-image (crop (+ (paddle-x a-paddle) (/ PF-SPACING 2))
+                          (row->y (paddle-row a-paddle))
+                          (- (paddle-width a-paddle) PF-SPACING)
+                          IBRICK-HEIGHT
+                          OVERLAY-IMG)
                     (+ (paddle-x a-paddle)
                        (/ (paddle-width a-paddle) 2))
                     (+ (row->y (paddle-row a-paddle))
@@ -756,23 +848,65 @@
     [(key=? "\r" key)
      (try-insert-coin a-brkt)]
     [(or (key=? "left" key)
-         (key=? "up" key)
-         (key=? "a" key)
-         (key=? "w" key))
-     (try-switch-left-game a-brkt)]
+         (key=? "a" key))
+     (try-switch-game "prev" a-brkt)]
     [(or (key=? "right" key)
-         (key=? "bottom" key)
-         (key=? "d" key)
-         (key=? "s" key))
-     (try-switch-right-game a-brkt)]
+         (key=? "d" key))
+     (try-switch-game "next" a-brkt)]
     [(key=? "1" key)
-     (one-player a-brkt)]
+     (try-set-player-count 1 a-brkt)]
     [(key=? "2" key)
-     (two-player a-brkt)]))
+     (try-set-player-count 2 a-brkt)]
+    [else a-brkt]))
 
-; handle-mouse : Breakout Number Number MouseEvent -> Breakout
-(define (handle-mouse a-brkt x y mouse)
-  (try-update-paddles x a-brkt))
+(define (try-serve a-brkt)
+  (make-breakout LOBA-0
+                 (breakout-lobr a-brkt)
+                 (breakout-lop a-brkt)
+                 (breakout-p1-score a-brkt)
+                 (breakout-p2-score a-brkt)
+                 (breakout-high-score a-brkt)
+                 (breakout-credit-count a-brkt)
+                 (breakout-tick-count a-brkt)
+                 (breakout-player-count a-brkt)
+                 (breakout-mode a-brkt)))
+
+(define (try-insert-coin a-brkt)
+  (make-breakout (breakout-loba a-brkt)
+                 (breakout-lobr a-brkt)
+                 (breakout-lop a-brkt)
+                 (breakout-p1-score a-brkt)
+                 (breakout-p2-score a-brkt)
+                 (breakout-high-score a-brkt)
+                 (local (; current coin count in 'a-brkt'
+                         (define coin-count (breakout-credit-count a-brkt)))
+                   (if (<= 0 coin-count 14) (add1 coin-count) 15))
+                 (breakout-tick-count a-brkt)
+                 (breakout-player-count a-brkt)
+                 (breakout-mode a-brkt)))
+
+(define (try-switch-game dir a-brkt)
+  (if (ready-to-play? (breakout-mode a-brkt))
+      (switch-ready-to-play dir a-brkt)
+      a-brkt))
+
+(define (try-set-player-count n a-brkt)
+  (if (ready-to-play? (breakout-mode a-brkt))
+      (make-breakout (breakout-loba a-brkt)
+                     (breakout-lobr a-brkt)
+                     (breakout-lop a-brkt)
+                     (breakout-p1-score a-brkt)
+                     (breakout-p2-score a-brkt)
+                     (breakout-high-score a-brkt)
+                     (breakout-credit-count a-brkt)
+                     (breakout-tick-count a-brkt)
+                     n
+                     (breakout-mode a-brkt))
+      a-brkt))
+
+;; handle-mouse : Breakout Number Number MouseEvent -> Breakout
+;(define (handle-mouse a-brkt x y mouse)
+;  (try-update-paddles x a-brkt))
 
 ;;; Main function
 ;;;;;;;;;;;;;;;;;;
@@ -783,6 +917,7 @@
   (big-bang a-brkt0
     [on-tick update SPT]
     [state DEBUG?]
+    [on-key handle-key]
     [to-draw render]))
 
 
@@ -836,8 +971,8 @@
                  P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
-                 SECOND-COUNT-0
-                 CTRL-PANEL-0
+                 TICK-COUNT-0
+                 PLAYER-COUNT-0
                  MODE-0))
 
 ;;; ATTRACT
@@ -850,8 +985,8 @@
                  P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
-                 SECOND-COUNT-0
-                 CTRL-PANEL-0
+                 TICK-COUNT-0
+                 PLAYER-COUNT-0
                  (make-attract 1 "cavity")))
 (define ATTRACT-DOUBLE-0
   (make-breakout (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1 #false)
@@ -862,8 +997,8 @@
                  P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
-                 SECOND-COUNT-0
-                 CTRL-PANEL-0
+                 TICK-COUNT-0
+                 PLAYER-COUNT-0
                  (make-attract 1 "double")))
 (define ATTRACT-PROGRESSIVE-0
   (make-breakout (list (make-ball (* PF-WIDTH 1/6) (row->y 22) 400 (/ pi 4) BACKWALL 0 0 1 #false))
@@ -873,8 +1008,8 @@
                  P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
-                 SECOND-COUNT-0
-                 CTRL-PANEL-0
+                 TICK-COUNT-0
+                 PLAYER-COUNT-0
                  (make-attract 1 "progressive")))
 
 ;;; READY-TO-PLAY
@@ -887,9 +1022,9 @@
                  P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
-                 SECOND-COUNT-0
-                 CTRL-PANEL-0
-                 (make-ready-to-play)))
+                 TICK-COUNT-0
+                 PLAYER-COUNT-0
+                 (make-ready-to-play "cavity")))
 (define READY-TO-PLAY-DOUBLE-0
   (make-breakout '()
                  DOUBLE-BRICKS-0
@@ -899,9 +1034,9 @@
                  P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
-                 SECOND-COUNT-0
-                 CTRL-PANEL-0
-                 (make-ready-to-play)))
+                 TICK-COUNT-0
+                 PLAYER-COUNT-0
+                 (make-ready-to-play "double")))
 (define READY-TO-PLAY-PROGRESSIVE-0
   (make-breakout '()
                  PROGRESSIVE-BRICKS-0
@@ -910,8 +1045,8 @@
                  P2-SCORE-0
                  HIGH-SCORE-0
                  CREDIT-COUNT-0
-                 SECOND-COUNT-0
-                 CTRL-PANEL-0
-                 (make-ready-to-play)))
+                 TICK-COUNT-0
+                 PLAYER-COUNT-0
+                 (make-ready-to-play "progressive")))
 
-(run READY-TO-PLAY-PROGRESSIVE-0)
+(run ATTRACT-CAVITY-0)
