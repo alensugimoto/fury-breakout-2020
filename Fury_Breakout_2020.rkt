@@ -101,7 +101,7 @@
 
 ; a Play is (make-play)
 ; interpretaton: a Super Breakout mode called "play"
-(define-struct play-mode [game])
+(define-struct play-mode [game has-one-serve?])
 
 ; a Mode is one of the following Strings:
 ; - an Attract
@@ -120,6 +120,7 @@
 (define-struct ctrl-panel [player-count paddle-posn game])
 
 (define-struct high-scores [cavity double progressive])
+(define-struct player [serve-num score playing?])
 
 ; a Breakout is (make-breakout loba lobr lop score high-score credit-count tick-count ctrl-panel mode)
 ;    where loba         : List<Ball>
@@ -135,7 +136,7 @@
 ;                 Bricks 'lobr', Paddles 'lop', and
 ;                 current Mode of operation 'mode'
 (define-struct breakout
-  [loba lobr lop serve-count p1-score p2-score high-scores credit-count tick-count ctrl-panel mode])
+  [loba lobr lop p1 p2 high-scores credit-count tick-count ctrl-panel mode])
 
 ;;; Constants
 ;;;;;;;;;;;;;;
@@ -203,9 +204,8 @@
 ; ball speed on serve
 (define BALL-SPEED-0 500)
 
-(define SERVE-COUNT-0 0)
-(define P1-SCORE-0 0)
-(define P2-SCORE-0 0)
+(define P1-0 (make-player 1 0 #true))
+(define P2-0 (make-player 1 0 #false))
 (define HIGH-SCORES-0 (make-high-scores 0 0 0))
 (define CREDIT-COUNT-0 0)
 (define TICK-COUNT-0 0)
@@ -367,16 +367,16 @@
                   (breakout-loba a-brkt))
                  (breakout-lobr a-brkt)
                  (breakout-lop a-brkt)
-                 (if has-child?
-                     (breakout-serve-count a-brkt)
-                     (add1 (breakout-serve-count a-brkt)))
-                 (breakout-p1-score a-brkt)
-                 (breakout-p2-score a-brkt)
+                 (breakout-p1 a-brkt)
+                 (breakout-p2 a-brkt)
                  (breakout-high-scores a-brkt)
                  (breakout-credit-count a-brkt)
                  (breakout-tick-count a-brkt)
                  (breakout-ctrl-panel a-brkt)
-                 (breakout-mode a-brkt)))
+                 (if (play-mode? (breakout-mode a-brkt))
+                     (make-play-mode (play-mode-game (breakout-mode a-brkt))
+                                     #true)
+                     (breakout-mode a-brkt))))
 
 ;;; Font functions
 
@@ -444,30 +444,90 @@
 
 ; update-balls-and-tick-count : Breakout -> Breakout
 (define (update-balls-and-tick-count a-brkt)
-  (local ((define new-loba
+  (local (; balls before filtering invalid ones
+          (define a-loba (map (lambda (a-ball)
+                                (update-ball a-ball a-brkt))
+                              (breakout-loba a-brkt)))
+          ; balls after filtering invalid ones
+          (define new-loba
             (filter (lambda (a-ball)
                       (not (frontwall? (ball-tick-vobject a-ball))))
-                    (map (lambda (a-ball)
-                           (update-ball a-ball a-brkt))
-                         (breakout-loba a-brkt)))))
+                    a-loba))
+          ; check if end of serve
+          (define (end-serve? a-player)
+            (and (ormap (lambda (a-ball)
+                          (frontwall? (ball-tick-vobject a-ball)))
+                        a-loba)
+                 (empty? (filter (lambda (a-ball)
+                                   (ball-in-play? a-ball))
+                                 new-loba))
+                 (player-playing? a-player)))
+          ; try-update-player
+          (define (update-players new-brkt)
+            (local ((define a-p1 (breakout-p1 new-brkt))
+                    (define a-p2 (breakout-p2 new-brkt)))
+            (if (= 1 (ctrl-panel-player-count
+                      (breakout-ctrl-panel new-brkt)))
+                (cond
+                  [(end-serve? a-p1)
+                   (set-players (make-player (add1 (player-serve-num a-p1))
+                                             (player-score a-p1)
+                                             (not (= SERVES-PER-GAME
+                                                     (add1 (player-serve-num a-p1)))))
+                                a-p2
+                                new-brkt)]
+                  [else
+                   (set-players a-p1 a-p2 new-brkt)])
+                (cond
+                  [(end-serve? a-p1)
+                   (set-players
+                    (make-player (add1 (player-serve-num a-p1))
+                                 (player-score a-p1)
+                                 #false)
+                    (make-player (player-serve-num a-p2)
+                                 (player-score a-p2)
+                                 (not (= SERVES-PER-GAME (player-serve-num a-p2))))
+                    new-brkt)]
+                  [(end-serve? a-p2)
+                   (set-players
+                    (make-player (player-serve-num a-p1)
+                                 (player-score a-p1)
+                                 (not (= SERVES-PER-GAME (player-serve-num a-p1))))
+                    (make-player (add1 (player-serve-num a-p2))
+                                 (player-score a-p2)
+                                 #false)
+                    new-brkt)]
+                  [else
+                   (set-players a-p1 a-p2 new-brkt)])))))
     (foldr (lambda (a-ball some-brkt)
              (if (and (ball-has-child? a-ball)
                       (= 1 (ball-paddle-hit-count a-ball))
                       (paddle? (ball-tick-vobject a-ball)))
                  (serve-ball 0 #false some-brkt)
                  some-brkt))
-           (make-breakout new-loba
-                          (breakout-lobr a-brkt)
-                          (breakout-lop a-brkt)
-                          (breakout-serve-count a-brkt)
-                          (breakout-p1-score a-brkt)
-                          (breakout-p2-score a-brkt)
-                          (breakout-high-scores a-brkt)
-                          (breakout-credit-count a-brkt)
-                          (add1 (breakout-tick-count a-brkt))
-                          (breakout-ctrl-panel a-brkt)
-                          (breakout-mode a-brkt))
+           (update-players (make-breakout new-loba
+                                          (breakout-lobr a-brkt)
+                                          (breakout-lop a-brkt)
+                                          (breakout-p1 a-brkt)
+                                          (breakout-p2 a-brkt)
+                                          (breakout-high-scores a-brkt)
+                                          (breakout-credit-count a-brkt)
+                                          (add1 (breakout-tick-count a-brkt))
+                                          (breakout-ctrl-panel a-brkt)
+                                          (breakout-mode a-brkt)))
            new-loba)))
+
+(define (set-players a-p1 a-p2 a-brkt)
+  (make-breakout (breakout-loba a-brkt)
+                 (breakout-lobr a-brkt)
+                 (breakout-lop a-brkt)
+                 a-p1
+                 a-p2
+                 (breakout-high-scores a-brkt)
+                 (breakout-credit-count a-brkt)
+                 (breakout-tick-count a-brkt)
+                 (breakout-ctrl-panel a-brkt)
+                 (breakout-mode a-brkt)))
 
 ; update-ball : Ball Breakout -> Ball
 ; update 'a-ball' for one clock tick given current Breakout 'a-brkt'
@@ -668,22 +728,21 @@
           (define a-version (attract-version a-attract)))
     (cond
       [(= 2 a-version)
-       (set-attract 1 "cavity" (serve-ball 1 #false (reset-game '() CAVITY-BRICKS-0 ATTRACT-PADDLES a-brkt)))]
+       (set-attract 1 "cavity" (serve-ball 1 #false (reset-game CAVITY-BRICKS-0 ATTRACT-PADDLES a-brkt)))]
       [(string=? a-game "cavity")
-       (set-attract 1 "double" (serve-ball 1 #true (reset-game '() DOUBLE-BRICKS-0 ATTRACT-PADDLES a-brkt)))]
+       (set-attract 1 "double" (serve-ball 1 #true (reset-game DOUBLE-BRICKS-0 ATTRACT-PADDLES a-brkt)))]
       [(string=? a-game "double")
-       (set-attract 1 "progressive" (serve-ball 1 #false (reset-game '() PROGRESSIVE-BRICKS-0 ATTRACT-PADDLES a-brkt)))]
+       (set-attract 1 "progressive" (serve-ball 1 #false (reset-game PROGRESSIVE-BRICKS-0 ATTRACT-PADDLES a-brkt)))]
       [(string=? a-game "progressive")
-       (set-attract 1 "cavity" (serve-ball 1 #false (reset-game '() CAVITY-BRICKS-0 ATTRACT-PADDLES a-brkt)))])))
+       (set-attract 1 "cavity" (serve-ball 1 #false (reset-game CAVITY-BRICKS-0 ATTRACT-PADDLES a-brkt)))])))
 
 ; set-attract-version
 (define (set-attract a-version a-game a-brkt)
   (make-breakout (breakout-loba a-brkt)
                  (breakout-lobr a-brkt)
                  (breakout-lop a-brkt)
-                 (breakout-serve-count a-brkt)
-                 (breakout-p1-score a-brkt)
-                 (breakout-p2-score a-brkt)
+                 (breakout-p1 a-brkt)
+                 (breakout-p2 a-brkt)
                  (breakout-high-scores a-brkt)
                  (breakout-credit-count a-brkt)
                  (breakout-tick-count a-brkt)
@@ -710,9 +769,8 @@
             (make-breakout (breakout-loba a-brkt)
                            (breakout-lobr a-brkt)
                            (breakout-lop a-brkt)
-                           (breakout-serve-count a-brkt)
-                           (breakout-p1-score a-brkt)
-                           (breakout-p2-score a-brkt)
+                           (breakout-p1 a-brkt)
+                           (breakout-p2 a-brkt)
                            (breakout-high-scores a-brkt)
                            (breakout-credit-count a-brkt)
                            (breakout-tick-count a-brkt)
@@ -721,11 +779,11 @@
     (update-paddles
      (cond
        [(string=? a-game "double")
-        (reset-game '() DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 new-brkt)]
+        (reset-game DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 new-brkt)]
        [(string=? a-game "cavity")
-        (reset-game '() CAVITY-BRICKS-0 CAVITY-PADDLES-0 new-brkt)]
+        (reset-game CAVITY-BRICKS-0 CAVITY-PADDLES-0 new-brkt)]
        [(string=? a-game "progressive")
-        (reset-game '() PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 new-brkt)]))))
+        (reset-game PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 new-brkt)]))))
 
 (define (switch-game dir a-brkt0)
   (local (; current control panel
@@ -735,17 +793,16 @@
           ; new breakout
           (define a-brkt
             (if (play-mode? (breakout-mode a-brkt0))
-                (make-breakout (breakout-loba a-brkt)
-                               (breakout-lobr a-brkt)
-                               (breakout-lop a-brkt)
-                               (breakout-serve-count a-brkt)
-                               (breakout-p1-score a-brkt)
-                               (breakout-p2-score a-brkt)
-                               (breakout-high-scores a-brkt)
-                               (breakout-credit-count a-brkt)
-                               (breakout-tick-count a-brkt)
+                (make-breakout (breakout-loba a-brkt0)
+                               (breakout-lobr a-brkt0)
+                               (breakout-lop a-brkt0)
+                               (breakout-p1 a-brkt0)
+                               (breakout-p2 a-brkt0)
+                               (breakout-high-scores a-brkt0)
+                               (breakout-credit-count a-brkt0)
+                               (breakout-tick-count a-brkt0)
                                a-ctrl-panel
-                               (make-play-mode a-game))
+                               (make-play-mode a-game #false))
                 a-brkt0)))
     (update-paddles
      (if (string=? dir "next")
@@ -753,14 +810,14 @@
            [(string=? a-game "double")
             a-brkt]
            [(string=? a-game "cavity")
-            (reset-game '() DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 a-brkt)]
+            (reset-game DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 a-brkt)]
            [(string=? a-game "progressive")
-            (reset-game '() CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)])
+            (reset-game CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)])
          (cond
            [(string=? a-game "double")
-            (reset-game '() CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)]
+            (reset-game CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)]
            [(string=? a-game "cavity")
-            (reset-game '() PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 a-brkt)]
+            (reset-game PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 a-brkt)]
            [(string=? a-game "progressive")
             a-brkt])))))
 
@@ -791,9 +848,8 @@
     (make-breakout (breakout-loba a-brkt)
                    (breakout-lobr a-brkt)
                    (breakout-lop a-brkt)
-                   (breakout-serve-count a-brkt)
-                   (breakout-p1-score a-brkt)
-                   (breakout-p2-score a-brkt)
+                   (breakout-p1 a-brkt)
+                   (breakout-p2 a-brkt)
                    (breakout-high-scores a-brkt)
                    (breakout-credit-count a-brkt)
                    (breakout-tick-count a-brkt)
@@ -808,9 +864,8 @@
     (make-breakout (breakout-loba a-brkt)
                    (breakout-lobr a-brkt)
                    (breakout-lop a-brkt)
-                   (breakout-serve-count a-brkt)
-                   (breakout-p1-score a-brkt)
-                   (breakout-p2-score a-brkt)
+                   (breakout-p1 a-brkt)
+                   (breakout-p2 a-brkt)
                    (breakout-high-scores a-brkt)
                    (breakout-credit-count a-brkt)
                    (breakout-tick-count a-brkt)
@@ -831,11 +886,12 @@
 ;;;;;;;;;;;;;;;;;;;;;
 
 ; reset-game : List List List Breakout -> Breakout
-(define (reset-game a-loba a-lobr a-lop a-brkt)
-  (make-breakout a-loba a-lobr a-lop
-                 (breakout-serve-count a-brkt)
-                 (breakout-p1-score a-brkt)
-                 (breakout-p2-score a-brkt)
+(define (reset-game a-lobr a-lop a-brkt)
+  (make-breakout '()
+                 a-lobr
+                 a-lop
+                 (breakout-p1 a-brkt)
+                 (breakout-p2 a-brkt)
                  (breakout-high-scores a-brkt)
                  (breakout-credit-count a-brkt)
                  (breakout-tick-count a-brkt)
@@ -851,9 +907,8 @@
                 (make-breakout (breakout-loba a-brkt)
                                (breakout-lobr a-brkt)
                                ATTRACT-PADDLES
-                               (breakout-serve-count a-brkt)
-                               (breakout-p1-score a-brkt)
-                               (breakout-p2-score a-brkt)
+                               (breakout-p1 a-brkt)
+                               (breakout-p2 a-brkt)
                                (breakout-high-scores a-brkt)
                                (breakout-credit-count a-brkt)
                                (breakout-tick-count a-brkt)
@@ -864,11 +919,11 @@
            (serve-ball 1 #true new-brkt)]
           [else (serve-ball 1 #false new-brkt)]))))
 
-(define SERVES-PER-GAME 3)
+(define SERVES-PER-GAME 4)
 
 (define (check-end-game a-brkt)
-  (if (and (= SERVES-PER-GAME (breakout-serve-count a-brkt))
-           (empty? (breakout-loba a-brkt)))
+  (if (and (not (player-playing? (breakout-p1 a-brkt)))
+           (not (player-playing? (breakout-p2 a-brkt))))
       (end-game a-brkt)
       a-brkt))
 
@@ -885,9 +940,8 @@
                                          a-loba)))
                            a-lobr)
                    (breakout-lop a-brkt)
-                   (breakout-serve-count a-brkt)
-                   (breakout-p1-score a-brkt)
-                   (breakout-p2-score a-brkt)
+                   (breakout-p1 a-brkt)
+                   (breakout-p2 a-brkt)
                    (breakout-high-scores a-brkt)
                    (breakout-credit-count a-brkt)
                    (breakout-tick-count a-brkt)
@@ -898,21 +952,18 @@
   (local (; current Balls
           (define a-loba (breakout-loba a-brkt))
           ; p1 score
-          (define a-p1-score (breakout-p1-score a-brkt))
-          ; p2 score
-          (define a-p2-score (breakout-p2-score a-brkt))
-          ; update-score : List<Ball> NonnegativeInteger -> NonnegativeInteger
-          (define (update-score a-score)
+          (define a-score
+            (if (player-playing? (breakout-p2 a-brkt))
+                (player-score (breakout-p2 a-brkt))
+                (player-score (breakout-p1 a-brkt))))
+          ; new score
+          (define new-score
             (+ a-score
                (apply + (map (lambda (a-ball)
                                (if (brick? (ball-tick-vobject a-ball))
                                    (brick-point-value (ball-tick-vobject a-ball))
                                    0))
                              a-loba))))
-          ; new p1 score
-          (define new-p1-score (update-score a-p1-score))
-          ; new p2 score
-          (define new-p2-score (update-score a-p2-score))
           ; current high score
           (define a-high-scores (breakout-high-scores a-brkt))
           ; current mode
@@ -920,39 +971,41 @@
           ; beat-bonus?
           (define (beat-bonus? a-score)
             (and (play-mode? a-mode)
-                 (>= new-p1-score
+                 (>= new-score
                      (get-bonus (play-mode-game a-mode))))))
     (make-breakout (breakout-loba a-brkt)
                    (breakout-lobr a-brkt)
                    (breakout-lop a-brkt)
-                   (breakout-serve-count a-brkt)
-                   new-p1-score
-                   new-p2-score
+                   (if (player-playing? (breakout-p1 a-brkt))
+                       (make-player (player-serve-num (breakout-p1 a-brkt))
+                                    new-score
+                                    (player-playing? (breakout-p1 a-brkt)))
+                       (breakout-p1 a-brkt))
+                   (if (player-playing? (breakout-p2 a-brkt))
+                       (make-player (player-serve-num (breakout-p2 a-brkt))
+                                    new-score
+                                    (player-playing? (breakout-p2 a-brkt)))
+                       (breakout-p2 a-brkt))
                    (if (play-mode? a-mode)
                        (cond
                          [(string=? "cavity" (play-mode-game a-mode))
                           (make-high-scores (max (high-scores-cavity a-high-scores)
-                                                 new-p1-score
-                                                 new-p2-score)
+                                                 new-score)
                                             (high-scores-double a-high-scores)
                                             (high-scores-progressive a-high-scores))]
                          [(string=? "double" (play-mode-game a-mode))
                           (make-high-scores (high-scores-cavity a-high-scores)
                                             (max (high-scores-double a-high-scores)
-                                                 new-p1-score
-                                                 new-p2-score)
+                                                 new-score)
                                             (high-scores-progressive a-high-scores))]
                          [(string=? "progressive" (play-mode-game a-mode))
                           (make-high-scores (high-scores-cavity a-high-scores)
                                             (high-scores-double a-high-scores)
                                             (max (high-scores-progressive a-high-scores)
-                                                 new-p1-score
-                                                 new-p2-score))])
+                                                 new-score))])
                        a-high-scores)
                    (+ (breakout-credit-count a-brkt)
-                      (if (beat-bonus? new-p1-score)
-                          1 0)
-                      (if (beat-bonus? new-p2-score)
+                      (if (beat-bonus? new-score)
                           1 0))
                    (breakout-tick-count a-brkt)
                    (breakout-ctrl-panel a-brkt)
@@ -985,8 +1038,12 @@
 
 ; render-attract : Breakout -> Image
 (define (render-attract a-brkt)
-  (render-p1-score (breakout-p1-score a-brkt)
-                   (render-p2-score (breakout-p2-score a-brkt)
+  (render-p1-score (breakout-tick-count a-brkt)
+                   (player-score (breakout-p1 a-brkt))
+                   #false
+                   (render-p2-score (breakout-tick-count a-brkt)
+                                    (player-score (breakout-p2 a-brkt))
+                                    #false
                                     (render-coin-mode (breakout-tick-count a-brkt)
                                                       (if (= 1 (attract-version
                                                                 (breakout-mode a-brkt)))
@@ -996,8 +1053,12 @@
 ; render-ready-to-play : Breakout -> Image
 (define (render-ready-to-play a-brkt)
   (render-paddles (breakout-lop a-brkt)
-                  (render-p1-score (breakout-p1-score a-brkt)
-                                   (render-p2-score (breakout-p2-score a-brkt)
+                  (render-p1-score (breakout-tick-count a-brkt)
+                                   (player-score (breakout-p1 a-brkt))
+                                   #false
+                                   (render-p2-score (breakout-tick-count a-brkt)
+                                                    (player-score (breakout-p2 a-brkt))
+                                                    #false
                                                     (render-bonus (ctrl-panel-game (breakout-ctrl-panel a-brkt))
                                                                   (render-coin-mode (breakout-tick-count a-brkt)
                                                                                     (get-high-score (ctrl-panel-game (breakout-ctrl-panel a-brkt)) a-brkt)
@@ -1005,14 +1066,26 @@
 
 ; render-play : Breakout -> Image
 (define (render-play a-brkt)
-  (if (zero? (breakout-serve-count a-brkt))
-      (render-paddles (breakout-lop a-brkt)
-                      (render-coin-mode (breakout-tick-count a-brkt)
-                                        (get-high-score (play-mode-game (breakout-mode a-brkt)) a-brkt)
-                                        PF-IMG))
-      (render-paddles (breakout-lop a-brkt)
-                      PF-IMG)))
-
+  (render-paddles (breakout-lop a-brkt)
+                  (render-serve-num (if (player-playing? (breakout-p1 a-brkt))
+                                        (player-serve-num (breakout-p1 a-brkt))
+                                        (player-serve-num (breakout-p2 a-brkt)))
+                                    (if (player-playing? (breakout-p1 a-brkt))
+                                        (render-p1-score (breakout-tick-count a-brkt)
+                                                         (player-score (breakout-p1 a-brkt))
+                                                         #true
+                                                         (if (play-mode-has-one-serve? (breakout-mode a-brkt))
+                                                             PF-IMG
+                                                             (render-bonus (play-mode-game (breakout-mode a-brkt))
+                                                                           PF-IMG)))
+                                        (render-p2-score (breakout-tick-count a-brkt)
+                                                         (player-score (breakout-p2 a-brkt))
+                                                         #true
+                                                         (if (play-mode-has-one-serve? (breakout-mode a-brkt))
+                                                             PF-IMG
+                                                             (render-bonus (play-mode-game (breakout-mode a-brkt))
+                                                                           PF-IMG)))))))
+  
 ;;; Image helpers
 
 (define (get-bonus a-game)
@@ -1045,6 +1118,13 @@
    "right" "top"
    bg-img))
 
+(define (render-serve-num a-serve-num bg-img)
+  (place-image/align (string->bitmap 31 (number->string a-serve-num))
+                     (col->x 14)
+                     (row->y 31)
+                     "right" "top"
+                     bg-img))
+
 ; render-coin-mode : Image -> Image
 (define (render-coin-mode tick-count high-score bg-img)
   (if (<= 0 (modulo tick-count (/ 2 SPT)) (- (/ 1 SPT) 1))
@@ -1073,22 +1153,38 @@
         (string-append "  0" score-string)
         (string-append (replicate (- 4 score-string-length) " ")
                        score-string))))
-  
+
 ; render-p1-score : Image -> Image
-(define (render-p1-score a-score bg-img)
-  (place-image/align (string->bitmap 31 (number->atari-string a-score))
-                     (col->x 7)
-                     (row->y 31)
-                     "right" "top"
-                     bg-img))
+(define (render-p1-score tick-count a-score flashing? bg-img)
+  (if (<= 0 (modulo tick-count (/ 1/2 SPT)) (- (/ 1/4 SPT) 1))
+      (if flashing?
+          bg-img
+          (place-image/align (string->bitmap 31 (number->atari-string a-score))
+                             (col->x 7)
+                             (row->y 31)
+                             "right" "top"
+                             bg-img))
+      (place-image/align (string->bitmap 31 (number->atari-string a-score))
+                         (col->x 7)
+                         (row->y 31)
+                         "right" "top"
+                         bg-img)))
 
 ; render-p2-score : Image -> Image
-(define (render-p2-score a-score bg-img)
-  (place-image/align (string->bitmap 31 (number->atari-string a-score))
-                     (col->x 25)
-                     (row->y 31)
-                     "right" "top"
-                     bg-img))
+(define (render-p2-score tick-count a-score flashing? bg-img)
+  (if (<= 0 (modulo tick-count (/ 1/2 SPT)) (- (/ 1/4 SPT) 1))
+      (if flashing?
+          bg-img
+          (place-image/align (string->bitmap 31 (number->atari-string a-score))
+                             (col->x 25)
+                             (row->y 31)
+                             "right" "top"
+                             bg-img))
+      (place-image/align (string->bitmap 31 (number->atari-string a-score))
+                         (col->x 25)
+                         (row->y 31)
+                         "right" "top"
+                         bg-img)))
 
 ; render-blocks : List<Block> Image -> Image
 ; a 'bg-img' with Bricks 'a-lobr' placed on it
@@ -1189,14 +1285,13 @@
             (make-breakout (breakout-loba a-brkt)
                            (breakout-lobr a-brkt)
                            (breakout-lop a-brkt)
-                           (breakout-serve-count a-brkt)
-                           (breakout-p1-score a-brkt)
-                           (breakout-p2-score a-brkt)
+                           (breakout-p1 a-brkt)
+                           (breakout-p2 a-brkt)
                            (breakout-high-scores a-brkt)
-                           (local (; current coin count in 'a-brkt'
-                                   (define coin-count (breakout-credit-count a-brkt)))
-                             (if (<= 0 coin-count 14)
-                                 (andplay click-1 (add1 coin-count))
+                           (local (; current credit count in 'a-brkt'
+                                   (define credit-count (breakout-credit-count a-brkt)))
+                             (if (<= 0 credit-count 14)
+                                 (andplay click-1 (add1 credit-count))
                                  15))
                            (breakout-tick-count a-brkt)
                            (breakout-ctrl-panel a-brkt)
@@ -1210,7 +1305,7 @@
    dir
    (if (or (ready-to-play? (breakout-mode a-brkt))
            (and (play-mode? (breakout-mode a-brkt))
-                (zero? (breakout-serve-count a-brkt))))
+                (not (play-mode-has-one-serve? (breakout-mode a-brkt)))))
        (switch-game dir a-brkt)
        (andplay ding a-brkt))))
 
@@ -1221,16 +1316,16 @@
           (make-breakout (breakout-loba a-brkt)
                          (breakout-lobr a-brkt)
                          (breakout-lop a-brkt)
-                         0
-                         0
-                         0
+                         (make-player 1 0 #true)
+                         (make-player 1 0 #false)
                          (breakout-high-scores a-brkt)
                          (- (breakout-credit-count a-brkt) n)
                          (breakout-tick-count a-brkt)
                          (make-ctrl-panel n
                                           (ctrl-panel-paddle-posn (breakout-ctrl-panel a-brkt))
                                           (ctrl-panel-game (breakout-ctrl-panel a-brkt)))
-                         (make-play-mode (ctrl-panel-game (breakout-ctrl-panel a-brkt)))))
+                         (make-play-mode (ctrl-panel-game (breakout-ctrl-panel a-brkt))
+                                         #false)))
       (andplay ding a-brkt)))
 
 ; handle-mouse : Breakout Number Number MouseEvent -> Breakout
@@ -1263,9 +1358,8 @@
                               (paddle-row a-paddle)
                               (paddle-width a-paddle)))
                            (breakout-lop a-brkt))
-                      (breakout-serve-count a-brkt)
-                      (breakout-p1-score a-brkt)
-                      (breakout-p2-score a-brkt)
+                      (breakout-p1 a-brkt)
+                      (breakout-p2 a-brkt)
                       (breakout-high-scores a-brkt)
                       (breakout-credit-count a-brkt)
                       (breakout-tick-count a-brkt)
@@ -1318,20 +1412,28 @@
 (define CAVITY-BRICKS-0
   (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 5)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 6)))
-          (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 7)))
-          (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 8)))
+          (list (make-brick 1 7) (make-brick 3 7) (make-brick 5 7)
+                (make-brick 11 7) (make-brick 13 7) (make-brick 15 7)
+                (make-brick 21 7) (make-brick 23 7) (make-brick 25 7))
+          (list (make-brick 1 8) (make-brick 3 8) (make-brick 5 8)
+                (make-brick 11 8) (make-brick 13 8) (make-brick 15 8)
+                (make-brick 21 8) (make-brick 23 8) (make-brick 25 8))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 9)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 10)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
 
+;(define CAVITY-BALLS-0
+;  (list (make-ball (col->x 7.5) (row->y 8.5) 200 (/ pi 4) BACKWALL BACKWALL 0 0)
+;        (make-ball (col->x 17.5) (row->y 8) 200 (/ pi 4) BACKWALL 0)
+;        (make-ball (* PF-WIDTH 3/6) (row->y 22) 500 (-(/ pi 4)) BACKWALL 1)))
+  
 (define ATTRACT-CAVITY-0
   (make-breakout '()
                  CAVITY-BRICKS-0
                  ATTRACT-PADDLES
-                 SERVE-COUNT-0
-                 P1-SCORE-0
-                 P2-SCORE-0
+                 P1-0
+                 P2-0
                  HIGH-SCORES-0
                  CREDIT-COUNT-0
                  TICK-COUNT-0
