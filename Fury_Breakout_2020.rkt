@@ -190,6 +190,11 @@
 
 ;;; Derived constants
 
+; coin mode blink duration in milliseconds
+(define COIN-MODE-BLINK-DUR-MS (* COIN-MODE-BLINK-DUR 1000))
+; score blink duration in milliseconds
+(define SCORE-BLINK-DUR-MS (* SCORE-BLINK-DUR 1000))
+
 ; ball speed range
 (define BALL-SPEED-RANGE (- BALL-MAX-SPEED BALL-MIN-SPEED))
 ; ball speeds (pixels per second)
@@ -763,6 +768,34 @@
             (reset-game PROGRESSIVE-BALLS-0 PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 new-brkt)])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (get-bonus a-game)
+  (cond
+    [(string=? a-game "cavity")
+     1400]
+    [(string=? a-game "double")
+     1500]
+    [(string=? a-game "progressive")
+     2000]))
+
+(define (get-high-score a-game a-brkt)
+  (cond
+    [(string=? a-game "cavity")
+     (high-scores-cavity (breakout-high-scores a-brkt))]
+    [(string=? a-game "double")
+     (high-scores-double (breakout-high-scores a-brkt))]
+    [(string=? a-game "progressive")
+     (high-scores-progressive (breakout-high-scores a-brkt))]))
+
+(define (number->atari-string a-score)
+  (local (; string
+          (define score-string (number->string a-score))
+          ; lenght
+          (define score-string-length (string-length score-string)))
+    (if (= 1 score-string-length)
+        (string-append "  0" score-string)
+        (string-append (replicate (- 4 score-string-length) " ")
+                       score-string))))
 
 ; ball-vx : Ball -> Number
 ; get the velocity in the x-direction of 'a-ball'
@@ -1611,22 +1644,24 @@
                    (breakout-mode a-brkt)
                    (breakout-next-silent-frame a-brkt))))
 
+;;;;;;;;;;;;;;
+;;;
 ;;; Rendering
+;;;
 ;;;;;;;;;;;;;;
 
 ; render : Breakout -> Image
 ; a rendered breakout game 'a-brkt'
 (define (render a-brkt)
-  (render-balls (append
-                 (player-loba (if (player-one? a-brkt)
-                                  (breakout-p1 a-brkt)
-                                  (breakout-p2 a-brkt)))
-                 (breakout-loba a-brkt))
-                (render-bricks (player-lobr (if (player-one? a-brkt)
-                                                (breakout-p1 a-brkt)
-                                                (breakout-p2 a-brkt)))
-                               (local (; current Mode in 'a-brkt'
-                                       (define a-mode (breakout-mode a-brkt)))
+  (local (; the current player playing
+          (define a-player
+            (if (player-one? a-brkt)
+                (breakout-p1 a-brkt)
+                (breakout-p2 a-brkt)))
+          ; current Mode in 'a-brkt'
+          (define a-mode (breakout-mode a-brkt)))
+    (render-balls (append (player-loba a-player) (breakout-loba a-brkt))
+                  (render-bricks (player-lobr a-player)
                                  (cond
                                    [(attract? a-mode)
                                     (render-attract a-brkt)]
@@ -1636,143 +1671,121 @@
                                     (render-play a-brkt)])))))
 
 ; render-attract : Breakout -> Image
+; render 'a-brkt' assuming it is in attract mode
+; require: (attract? (breakout-mode a-brkt)) is #true
 (define (render-attract a-brkt)
-  (render-p1-score (player-score (breakout-p1 a-brkt))
-                   #false
-                   (render-p2-score (player-score (breakout-p2 a-brkt))
-                                    #false
-                                    (render-coin-mode (if (attract-v1? (breakout-mode a-brkt))
-                                                          0 (get-high-score (attract-game (breakout-mode a-brkt)) a-brkt))
-                                                      PF-IMG))))
+  (render-player-score (player-score (breakout-p1 a-brkt))
+                       P1-SCORE-COL P1-SCORE-ROW #false
+                       (render-player-score (player-score (breakout-p2 a-brkt))
+                                            P2-SCORE-COL P2-SCORE-ROW #false
+                                            (render-coin-mode (local (; current mode
+                                                                      (define a-mode (breakout-mode a-brkt)))
+                                                                (if (attract-v1? a-mode)
+                                                                    0
+                                                                    (get-high-score (attract-game a-mode) a-brkt)))
+                                                              PF-IMG))))
 
 ; render-ready-to-play : Breakout -> Image
+; render 'a-brkt' assuming it is in ready-to-play mode
+; require: (ready-to-play? (breakout-mode a-brkt)) is #true
 (define (render-ready-to-play a-brkt)
   (render-paddles (breakout-lop a-brkt)
-                  (render-p1-score (player-score (breakout-p1 a-brkt))
-                                   #false
-                                   (render-p2-score (player-score (breakout-p2 a-brkt))
-                                                    #false
-                                                    (render-bonus (ctrl-panel-game (breakout-ctrl-panel a-brkt))
-                                                                  (render-coin-mode (get-high-score (ctrl-panel-game (breakout-ctrl-panel a-brkt)) a-brkt)
-                                                                                    PF-IMG))))))
+                  (render-player-score (player-score (breakout-p1 a-brkt))
+                                       P1-SCORE-COL P1-SCORE-ROW #false
+                                       (render-player-score (player-score (breakout-p2 a-brkt))
+                                                            P2-SCORE-COL P2-SCORE-ROW #false
+                                                            (render-bonus (ctrl-panel-game (breakout-ctrl-panel a-brkt))
+                                                                          (render-coin-mode (get-high-score (ctrl-panel-game
+                                                                                                             (breakout-ctrl-panel a-brkt))
+                                                                                                            a-brkt)
+                                                                                            PF-IMG))))))
 
 ; render-play : Breakout -> Image
+; render 'a-brkt' assuming it is in play mode
+; require: (play-mode? (breakout-mode a-brkt)) is #true
 (define (render-play a-brkt)
   (render-paddles (breakout-lop a-brkt)
                   (render-serve-num (breakout-serve-num a-brkt)
-                                    (render-p1-score (player-score (breakout-p1 a-brkt))
-                                                     (player-one? a-brkt)
-                                                     (if (not (ctrl-panel-one-player? (breakout-ctrl-panel a-brkt)))
-                                                         (render-p2-score (player-score (breakout-p2 a-brkt))
-                                                                          (not (player-one? a-brkt))
-                                                                          (if (play-mode-has-one-serve? (breakout-mode a-brkt))
-                                                                              PF-IMG
-                                                                              (render-bonus (play-mode-game (breakout-mode a-brkt))
-                                                                                            PF-IMG)))
-                                                         (if (play-mode-has-one-serve? (breakout-mode a-brkt))
-                                                             PF-IMG
-                                                             (render-bonus (play-mode-game (breakout-mode a-brkt))
-                                                                           PF-IMG)))))))
-  
-;;; Image helpers
+                                    (render-player-score (player-score (breakout-p1 a-brkt))
+                                                         P1-SCORE-COL P1-SCORE-ROW
+                                                         (player-one? a-brkt)
+                                                         (local (; current mode
+                                                                 (define a-mode (breakout-mode a-brkt))
+                                                                 ; a 'PF-IMG' and maybe a bonus over it
+                                                                 (define maybe-bonus-image
+                                                                   (if (play-mode-has-one-serve? a-mode)
+                                                                       PF-IMG
+                                                                       (render-bonus (play-mode-game a-mode)
+                                                                                     PF-IMG))))
+                                                           (if (not (ctrl-panel-one-player? (breakout-ctrl-panel a-brkt)))
+                                                               (render-player-score (player-score (breakout-p2 a-brkt))
+                                                                                    P2-SCORE-COL P2-SCORE-ROW
+                                                                                    (not (player-one? a-brkt))
+                                                                                    maybe-bonus-image)
+                                                               maybe-bonus-image))))))
 
-(define (get-bonus a-game)
-  (cond
-    [(string=? a-game "cavity")
-     1400]
-    [(string=? a-game "double")
-     1500]
-    [(string=? a-game "progressive")
-     2000]))
-
-(define (get-high-score a-game a-brkt)
-  (cond
-    [(string=? a-game "cavity")
-     (high-scores-cavity (breakout-high-scores a-brkt))]
-    [(string=? a-game "double")
-     (high-scores-double (breakout-high-scores a-brkt))]
-    [(string=? a-game "progressive")
-     (high-scores-progressive (breakout-high-scores a-brkt))]))
-
+; render-bonus : Game Image -> Image
+; render the bonus score level on 'bg-img' given 'a-game'
 (define (render-bonus a-game bg-img)
   (place-image/align
    (string->bitmap
-    27
+    BONUS-ROW
     (string-append BONUS-PREFIX
                    (number->atari-string
                     (get-bonus a-game))))
-   (col->x 22)
-   (row->y 27)
+   (col->x BONUS-COL)
+   (row->y BONUS-ROW)
    "right" "top"
    bg-img))
 
+; render-serve-num : NonnegativeNumber Image -> Image
+; render the current serve number 'a-serve-num' over 'bg-img'
 (define (render-serve-num a-serve-num bg-img)
-  (place-image/align (string->bitmap 31 (number->string (min GAME-LENGTH (floor a-serve-num))))
-                     (col->x 14)
-                     (row->y 31)
+  (place-image/align (string->bitmap SERVE-NUM-ROW
+                                     (number->string (min GAME-LENGTH
+                                                          (floor a-serve-num))))
+                     (col->x SERVE-NUM-COL)
+                     (row->y SERVE-NUM-ROW)
                      "right" "top"
                      bg-img))
 
-; render-coin-mode : Image -> Image
+; render-coin-mode : Mode Image -> Image
+; render the coin mode over 'bg-img' based on 'high-score' 
 (define (render-coin-mode high-score bg-img)
-  (if (<= 0 (modulo (current-milliseconds) 2000) 1000)
+  (if (<= 0
+          (modulo (current-milliseconds) COIN-MODE-BLINK-DUR-MS)
+          (/ COIN-MODE-BLINK-DUR-MS 2))
       (if (zero? high-score)
           bg-img
           (place-image/align
-           (string->bitmap 30 (string-append "HIGH SCORE "
-                                             (number->atari-string high-score)))
-           (col->x 21)
-           (row->y 30)
+           (string->bitmap COIN-MODE-ROW (string-append HIGH-SCORE-PREFIX
+                                                        (number->atari-string high-score)))
+           (col->x COIN-MODE-COL)
+           (row->y COIN-MODE-ROW)
            "right" "top"
            bg-img))
       (place-image/align
-       (string->bitmap 30 "1 COIN  1 PLAYER")
-       (col->x 21)
-       (row->y 30)
+       (string->bitmap COIN-MODE-ROW COIN-MODE)
+       (col->x COIN-MODE-COL)
+       (row->y COIN-MODE-ROW)
        "right" "top"
        bg-img)))
 
-(define (number->atari-string a-score)
-  (local (; string
-          (define score-string (number->string a-score))
-          ; lenght
-          (define score-string-length (string-length score-string)))
-    (if (= 1 score-string-length)
-        (string-append "  0" score-string)
-        (string-append (replicate (- 4 score-string-length) " ")
-                       score-string))))
-
-; render-p1-score : Image -> Image
-(define (render-p1-score a-score flashing? bg-img)
-  (if (<= 0 (modulo (current-milliseconds) 500) 250)
-      (if flashing?
-          bg-img
-          (place-image/align (string->bitmap 31 (number->atari-string a-score))
-                             (col->x 7)
-                             (row->y 31)
-                             "right" "top"
-                             bg-img))
-      (place-image/align (string->bitmap 31 (number->atari-string a-score))
-                         (col->x 7)
-                         (row->y 31)
-                         "right" "top"
-                         bg-img)))
-
-; render-p2-score : Image -> Image
-(define (render-p2-score a-score flashing? bg-img)
-  (if (<= 0 (modulo (current-milliseconds) 500) 250)
-      (if flashing?
-          bg-img
-          (place-image/align (string->bitmap 31 (number->atari-string a-score))
-                             (col->x 25)
-                             (row->y 31)
-                             "right" "top"
-                             bg-img))
-      (place-image/align (string->bitmap 31 (number->atari-string a-score))
-                         (col->x 25)
-                         (row->y 31)
-                         "right" "top"
-                         bg-img)))
+; render-player-score : NonnegativeInteger NonnegativeInteger NonnegativeInteger Boolean Image -> Image
+; render 'a-score' over 'bg-img' with its upper right at column 'col' and row 'row' based on 'flashing?'
+(define (render-player-score a-score col rol flashing? bg-img)
+  (local (; final image of 'a-score' over 'bg-img'
+          (define score-img
+            (place-image/align (string->bitmap rol (number->atari-string a-score))
+                               (col->x col)
+                               (row->y rol)
+                               "right" "top"
+                               bg-img)))
+    (if (<= 0
+            (modulo (current-milliseconds) SCORE-BLINK-DUR-MS)
+            (/ SCORE-BLINK-DUR-MS 2))
+        (if flashing? bg-img score-img)
+        score-img)))
 
 ; render-blocks : List<Block> Image -> Image
 ; a 'bg-img' with Bricks 'a-lobr' placed on it
@@ -1830,7 +1843,10 @@
                           "left" "top"
                           (render-paddles (rest a-lop) bg-img)))]))
 
+;;;;;;;;;;;;;;;;;
+;;;
 ;;; Key handling
+;;;
 ;;;;;;;;;;;;;;;;;
 
 ; handle-key : Breakout KeyEvent -> Breakout
@@ -2062,8 +2078,8 @@
 (define (run a-brkt0)
   (big-bang a-brkt0
     [on-tick update SPT]
+    [to-draw render]
     [on-key handle-key]
-    [on-mouse handle-mouse]
-    [to-draw render]))
+    [on-mouse handle-mouse]))
 
-(run (serve-ball 1 #false ATTRACT-CAVITY-0))
+(run (serve "cavity" ATTRACT-CAVITY-0))
