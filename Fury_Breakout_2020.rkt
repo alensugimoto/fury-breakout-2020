@@ -160,7 +160,6 @@
 (define PROGRESSIVE-BRICK-WALL-HEIGHT 4)
 
 ; game bricks
-; number of balls for every game
 ; paddle rows for each game
 
 ; the maximum number of active balls each game can start off with
@@ -649,6 +648,120 @@
                   (ball-serve-delay a-ball)
                   (ball-has-child? a-ball))])))
 
+; try-andqueue-ticks : NonnegativeInteger Breakout -> Breakout
+; queue the next sequence of 'tick-score' tick sound(s) in a Pstream and
+; return a new 'a-brkt' with a new next silent frame
+(define (try-andqueue-ticks tick-score a-brkt)
+  (local (; frame to play next ticks
+          (define next-noise-frame (max (breakout-next-silent-frame a-brkt)
+                                        (pstream-current-frame RS-TICK-STREAM)))
+          ; frame to stop playing next ticks
+          (define new-next-silent-frame (+ next-noise-frame
+                                           (* RS-TICK-LENGTH tick-score))))
+    (cond
+      [(and (pstream? (pstream-set-volume! RS-TICK-STREAM 1))
+            (positive? tick-score)
+            SOUND?
+            (play-mode? (breakout-mode a-brkt)))
+       (andqueue RS-TICK-STREAM
+                 (rs-append* (make-list tick-score RS-TICK))
+                 next-noise-frame
+                 (make-breakout (breakout-loba a-brkt)
+                                (breakout-lop a-brkt)
+                                (breakout-serve-num a-brkt)
+                                (breakout-p1 a-brkt)
+                                (breakout-p2 a-brkt)
+                                (breakout-high-scores a-brkt)
+                                (breakout-credit-count a-brkt)
+                                (breakout-ctrl-panel a-brkt)
+                                (breakout-mode a-brkt)
+                                new-next-silent-frame))]
+      [else a-brkt])))
+
+; reset-game : List<Ball> List<Brick> List<Paddle> Breakout -> Breakout
+; reset the game current displayed in 'a-brkt' to include 'a-loba', 'a-lobr', and 'a-lop'
+(define (reset-game a-loba a-lobr a-lop a-brkt)
+  (make-breakout '() a-lop
+                 (breakout-serve-num a-brkt)
+                 (make-player (player-score (breakout-p1 a-brkt))
+                              a-loba a-lobr 0)
+                 (make-player (player-score (breakout-p2 a-brkt))
+                              a-loba a-lobr 0)
+                 (breakout-high-scores a-brkt)
+                 (breakout-credit-count a-brkt)
+                 (breakout-ctrl-panel a-brkt)
+                 (breakout-mode a-brkt)
+                 (breakout-next-silent-frame a-brkt)))
+
+; serve : Game Breakout -> Breakout
+; serve one ball based on 'a-game' in 'a-brkt'
+(define (serve a-game a-brkt)
+  (cond
+    [(string=? a-game "double")
+     (serve-ball 1 #true a-brkt)]
+    [else
+     (serve-ball 1 #false a-brkt)]))
+
+; set-attract : Boolean Game Breakout -> Breakout
+; switch 'a-brkt' into attract mode with 'a-v1?' and 'a-game'
+; and automatically serve a ball
+(define (set-attract a-v1? a-game a-brkt)
+  (serve a-game
+         (make-breakout (breakout-loba a-brkt)
+                        ATTRACT-PADDLES
+                        (breakout-serve-num a-brkt)
+                        (breakout-p1 a-brkt)
+                        (breakout-p2 a-brkt)
+                        (breakout-high-scores a-brkt)
+                        (breakout-credit-count a-brkt)
+                        (breakout-ctrl-panel a-brkt)
+                        (make-attract a-v1? a-game)
+                        (breakout-next-silent-frame a-brkt))))
+
+; set-ready-to-play : Breakout -> Breakout
+; switch 'a-brkt' into ready-to-play mode
+(define (set-ready-to-play a-brkt)
+  (local (; current control panel
+          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
+          ; game selected by a player
+          (define a-game (ctrl-panel-game a-ctrl-panel))
+          ; current mode
+          (define a-mode (breakout-mode a-brkt))
+          ; new breakout
+          (define new-brkt
+            (make-breakout (breakout-loba a-brkt)
+                           (breakout-lop a-brkt)
+                           (breakout-serve-num a-brkt)
+                           (breakout-p1 a-brkt)
+                           (breakout-p2 a-brkt)
+                           (breakout-high-scores a-brkt)
+                           (breakout-credit-count a-brkt)
+                           (breakout-ctrl-panel a-brkt)
+                           (make-ready-to-play)
+                           (breakout-next-silent-frame a-brkt))))
+    (update-paddle-x
+     (if (or (and (play-mode? a-mode)
+                  (string=? a-game (play-mode-game a-mode)))
+             (and (attract? a-mode)
+                  (string=? a-game (attract-game a-mode))))
+         (reset-game (player-loba (breakout-p1 new-brkt))
+                     (player-lobr (breakout-p1 new-brkt))
+                     (cond
+                       [(string=? a-game "double")
+                        DOUBLE-PADDLES-0]
+                       [(string=? a-game "cavity")
+                        CAVITY-PADDLES-0]
+                       [(string=? a-game "progressive")
+                        PROGRESSIVE-PADDLES-0])
+                     new-brkt)
+         (cond
+           [(string=? a-game "double")
+            (reset-game DOUBLE-BALLS-0 DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 new-brkt)]
+           [(string=? a-game "cavity")
+            (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 CAVITY-PADDLES-0 new-brkt)]
+           [(string=? a-game "progressive")
+            (reset-game PROGRESSIVE-BALLS-0 PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 new-brkt)])))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 ; ball-vx : Ball -> Number
@@ -875,7 +988,10 @@
 (define (1string->bitmap row str)
   (vector-ref (vector-ref CHAR-BITMAPS row) (string->int str)))
 
+;;;;;;;;;;;;;;;;;;
+;;;
 ;;; Tick handling
+;;;
 ;;;;;;;;;;;;;;;;;;
 
 ; update : Breakout -> Breakout
@@ -891,6 +1007,12 @@
       [(play-mode? a-mode)
        (update-play a-brkt)]
       [else a-brkt])))
+
+;;;;;;;;;;;;;;;;;;
+;;;
+;;; Ball handling
+;;;
+;;;;;;;;;;;;;;;;;;
 
 ; update-balls : Breakout -> Breakout
 ; update the balls in 'a-brkt' as well as any other states
@@ -1180,9 +1302,11 @@
                   (ball-serve-delay new-ball)
                   (ball-has-child? new-ball))])))
 
-;;;;;;;;;;;;
-;;; ATTRACT
-;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Attract mode handling
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; update-attract : Breakout -> Breakout
 ; update Breakout 'a-brkt' in attract mode
@@ -1206,183 +1330,26 @@
   (local (; current Mode in 'a-brkt'
           (define a-attract (breakout-mode a-brkt))
           ; current Game in attract mode
-          (define a-game (attract-game a-attract))
-          ; set-attract-game! : Game Breakout -> Breakout
-          ; set the game displayed in the attract mode of 'a-brkt' to 'a-game'
-          ; and automatically serve a ball
-          (define (set-attract-game! a-game a-brkt)
-            (serve a-game
-                   (make-breakout (breakout-loba a-brkt)
-                                  (breakout-lop a-brkt)
-                                  (breakout-serve-num a-brkt)
-                                  (breakout-p1 a-brkt)
-                                  (breakout-p2 a-brkt)
-                                  (breakout-high-scores a-brkt)
-                                  (breakout-credit-count a-brkt)
-                                  (breakout-ctrl-panel a-brkt)
-                                  (make-attract #true a-game)
-                                  (breakout-next-silent-frame a-brkt)))))
+          (define a-game (attract-game a-attract)))
     (cond
       [(string=? a-game "cavity")
-       (set-attract-game! "double"
-                          (reset-game DOUBLE-BALLS-0
-                                      DOUBLE-BRICKS-0
-                                      ATTRACT-PADDLES
-                                      a-brkt))]
+       (set-attract #true "double"
+                    (reset-game DOUBLE-BALLS-0 DOUBLE-BRICKS-0 '() a-brkt))]
       [(string=? a-game "double")
-       (set-attract-game! "progressive"
-                          (reset-game PROGRESSIVE-BALLS-0
-                                      PROGRESSIVE-BRICKS-0
-                                      ATTRACT-PADDLES
-                                      a-brkt))]
+       (set-attract #true "progressive"
+                    (reset-game PROGRESSIVE-BALLS-0 PROGRESSIVE-BRICKS-0 '() a-brkt))]
       [else
-       (set-attract-game! "cavity"
-                          (reset-game CAVITY-BALLS-0
-                                      CAVITY-BRICKS-0
-                                      ATTRACT-PADDLES
-                                      a-brkt))])))
+       (set-attract #true "cavity"
+                    (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 '() a-brkt))])))
 
-;;;;;;;;;;;;;;;;;;
-;;; READY-TO-PLAY
-;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Play mode handling
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;
 
-; set-ready-to-play : Breakout -> Breakout
-; switches 'a-brkt' into ready-to-play mode
-(define (set-ready-to-play a-brkt)
-  (local (; current control panel
-          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
-          ; game selected by a player
-          (define a-game (ctrl-panel-game a-ctrl-panel))
-          ; current mode
-          (define a-mode (breakout-mode a-brkt))
-          ; new breakout
-          (define new-brkt
-            (make-breakout (breakout-loba a-brkt)
-                           (breakout-lop a-brkt)
-                           (breakout-serve-num a-brkt)
-                           (breakout-p1 a-brkt)
-                           (breakout-p2 a-brkt)
-                           (breakout-high-scores a-brkt)
-                           (breakout-credit-count a-brkt)
-                           (breakout-ctrl-panel a-brkt)
-                           (make-ready-to-play)
-                           (breakout-next-silent-frame a-brkt))))
-    (update-paddles
-     (if (or (and (play-mode? a-mode)
-                  (string=? a-game (play-mode-game a-mode)))
-             (and (attract? a-mode)
-                  (string=? a-game (attract-game a-mode))))
-         (reset-game (player-loba (breakout-p1 new-brkt))
-                     (player-lobr (breakout-p1 new-brkt))
-                     (cond
-                       [(string=? a-game "double")
-                        DOUBLE-PADDLES-0]
-                       [(string=? a-game "cavity")
-                        CAVITY-PADDLES-0]
-                       [(string=? a-game "progressive")
-                        PROGRESSIVE-PADDLES-0])
-                     new-brkt)
-         (cond
-           [(string=? a-game "double")
-            (reset-game DOUBLE-BALLS-0 DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 new-brkt)]
-           [(string=? a-game "cavity")
-            (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 CAVITY-PADDLES-0 new-brkt)]
-           [(string=? a-game "progressive")
-            (reset-game PROGRESSIVE-BALLS-0 PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 new-brkt)])))))
-
-(define (switch-game dir a-brkt0)
-  (local (; current control panel
-          (define a-ctrl-panel (breakout-ctrl-panel a-brkt0))
-          ; current player count
-          (define a-game (ctrl-panel-game a-ctrl-panel))
-          ; new breakout
-          (define a-brkt
-            (if (play-mode? (breakout-mode a-brkt0))
-                (make-breakout (breakout-loba a-brkt0)
-                               (breakout-lop a-brkt0)
-                               (breakout-serve-num a-brkt0)
-                               (breakout-p1 a-brkt0)
-                               (breakout-p2 a-brkt0)
-                               (breakout-high-scores a-brkt0)
-                               (breakout-credit-count a-brkt0)
-                               a-ctrl-panel
-                               (make-play-mode a-game #false #false)
-                               (breakout-next-silent-frame a-brkt0))
-                a-brkt0)))
-    (update-paddles
-     (if (string=? dir "next")
-         (cond
-           [(string=? a-game "double")
-            a-brkt]
-           [(string=? a-game "cavity")
-            (reset-game DOUBLE-BALLS-0 DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 a-brkt)]
-           [(string=? a-game "progressive")
-            (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)])
-         (cond
-           [(string=? a-game "double")
-            (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)]
-           [(string=? a-game "cavity")
-            (reset-game PROGRESSIVE-BALLS-0 PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 a-brkt)]
-           [(string=? a-game "progressive")
-            a-brkt])))))
-
-(define (switch-ctrl-panel-game dir a-brkt)
-  (local (; current control panel
-          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
-          ; current player count
-          (define a-game (ctrl-panel-game a-ctrl-panel)))
-    (if (string=? dir "next")
-        (cond
-          [(string=? a-game "double")
-           a-brkt]
-          [(string=? a-game "cavity")
-           (set-ctrl-panel-game "double" a-brkt)]
-          [(string=? a-game "progressive")
-           (set-ctrl-panel-game "cavity" a-brkt)])
-        (cond
-          [(string=? a-game "double")
-           (set-ctrl-panel-game "cavity" a-brkt)]
-          [(string=? a-game "cavity")
-           (set-ctrl-panel-game "progressive" a-brkt)]
-          [(string=? a-game "progressive")
-           a-brkt]))))
-
-(define (set-ctrl-panel-game a-game a-brkt)
-  (local (; current control panel
-          (define a-ctrl-panel (breakout-ctrl-panel a-brkt)))
-    (make-breakout (breakout-loba a-brkt)
-                   (breakout-lop a-brkt)
-                   (breakout-serve-num a-brkt)
-                   (breakout-p1 a-brkt)
-                   (breakout-p2 a-brkt)
-                   (breakout-high-scores a-brkt)
-                   (breakout-credit-count a-brkt)
-                   (make-ctrl-panel (ctrl-panel-one-player? a-ctrl-panel)
-                                    (ctrl-panel-paddle-posn a-ctrl-panel)
-                                    a-game)
-                   (breakout-mode a-brkt)
-                   (breakout-next-silent-frame a-brkt))))
-
-(define (set-ctrl-panel-paddle-posn x a-brkt)
-  (local (; current control panel
-          (define a-ctrl-panel (breakout-ctrl-panel a-brkt)))
-    (make-breakout (breakout-loba a-brkt)
-                   (breakout-lop a-brkt)
-                   (breakout-serve-num a-brkt)
-                   (breakout-p1 a-brkt)
-                   (breakout-p2 a-brkt)
-                   (breakout-high-scores a-brkt)
-                   (breakout-credit-count a-brkt)
-                   (make-ctrl-panel (ctrl-panel-one-player? a-ctrl-panel)
-                                    x
-                                    (ctrl-panel-game a-ctrl-panel))
-                   (breakout-mode a-brkt)
-                   (breakout-next-silent-frame a-brkt))))
-
-;;;;;;;;;
-;;; PLAY
-;;;;;;;;;
-
+; update-play : Breakout -> Breakout
+; update 'a-brkt' assuming it is in play mode
 (define (update-play a-brkt)
   (check-end-game
    (handle-end-serve
@@ -1390,109 +1357,61 @@
      (update-score
       (update-paddle-width a-brkt))))))
 
-;;;;;;;;;;;;;;;;;;;;;
-;;; GENERAL HANDLING
-;;;;;;;;;;;;;;;;;;;;;
-
-; reset-game : List List List Breakout -> Breakout
-(define (reset-game a-loba a-lobr a-lop a-brkt)
-  (make-breakout '()
-                 a-lop
-                 (breakout-serve-num a-brkt)
-                 (make-player (player-score (breakout-p1 a-brkt))
-                              a-loba
-                              a-lobr
-                              0)
-                 (make-player (player-score (breakout-p2 a-brkt))
-                              a-loba
-                              a-lobr
-                              0)
-                 (breakout-high-scores a-brkt)
-                 (breakout-credit-count a-brkt)
-                 (breakout-ctrl-panel a-brkt)
-                 (breakout-mode a-brkt)
-                 (breakout-next-silent-frame a-brkt)))
-
-; end-game
-(define (end-game a-brkt)
-  (if (positive? (breakout-credit-count a-brkt))
-      (set-ready-to-play a-brkt)
-      (local ((define a-game (play-mode-game (breakout-mode a-brkt)))
-              (define new-brkt
-                (make-breakout (breakout-loba a-brkt)
-                               ATTRACT-PADDLES
-                               (breakout-serve-num a-brkt)
-                               (breakout-p1 a-brkt)
-                               (breakout-p2 a-brkt)
-                               (breakout-high-scores a-brkt)
-                               (breakout-credit-count a-brkt)
-                               (breakout-ctrl-panel a-brkt)
-                               (make-attract #false a-game)
-                               (breakout-next-silent-frame a-brkt))))
-        (cond
-          [(string=? a-game "double")
-           (serve-ball 1 #true new-brkt)]
-          [else (serve-ball 1 #false new-brkt)]))))
-
+; check-end-game : Breakout -> Breakout
+; check if the game in 'a-brkt' ended, and handle 'a-brkt' if it did;
+; otherwise, return 'a-brkt'
 (define (check-end-game a-brkt)
   (if (< GAME-LENGTH (floor (breakout-serve-num a-brkt)))
-      (end-game a-brkt)
+      (if (positive? (breakout-credit-count a-brkt))
+          (set-ready-to-play a-brkt)
+          (set-attract #false (play-mode-game (breakout-mode a-brkt)) a-brkt))
       a-brkt))
 
+; handle-end-serve : Breakout -> Breakout
+; update 'a-brkt' for an end of serve
+; require: (play-mode? (breakout-mode a-brkt)) is #true
 (define (handle-end-serve a-brkt)
-  (local ((define (update-player-bricks a-player)
-            (if (and (play-mode-end-serve? (breakout-mode a-brkt))
-                     (> (pstream-current-frame RS-TICK-STREAM)
-                        (breakout-next-silent-frame a-brkt)))
+  (if (and (play-mode-end-serve? (breakout-mode a-brkt))
+           (> (pstream-current-frame RS-TICK-STREAM)
+              (breakout-next-silent-frame a-brkt)))
+      (local (; current mode in 'a-brkt'
+              (define a-mode (breakout-mode a-brkt))
+              ; current game being played in 'a-brkt'
+              (define a-game (play-mode-game a-mode))
+              ; players
+              (define a-p1 (breakout-p1 a-brkt))
+              (define a-p2 (breakout-p2 a-brkt))
+              ; whether or not player one is playing
+              (define p1? (player-one? a-brkt))
+              ; update-player-bricks : Player -> Player
+              ; update the bricks of 'a-brick' to exclude the four rows
+              (define (update-player-bricks a-player)
                 (make-player (player-score a-player)
                              (player-loba a-player)
-                             (filter (lambda (a-brick)
-                                       (not (<= 25 (brick-row a-brick) 28)))
-                                     (player-lobr a-player))
-                             (player-progression-count a-player))
-                a-player)))
-    (make-breakout (breakout-loba a-brkt)
-                   (if (and (play-mode-end-serve? (breakout-mode a-brkt))
-                            (> (pstream-current-frame RS-TICK-STREAM)
-                               (breakout-next-silent-frame a-brkt)))
+                             (if (string=? "progressive" a-game)
+                                 (filter (lambda (a-brick)
+                                           (> (- PROGRESSIVE-BRICK-WALL-HEIGHT 4)
+                                              (brick-row a-brick)))
+                                         (player-lobr a-player))
+                                 (player-lobr a-player))
+                             (player-progression-count a-player))))
+        (make-breakout (breakout-loba a-brkt)
                        (map (lambda (a-paddle)
                               (make-paddle (paddle-x a-paddle)
                                            (paddle-row a-paddle)
                                            PADDLE-MAX-WIDTH))
                             (breakout-lop a-brkt))
-                       (breakout-lop a-brkt))
-                   (if (and (play-mode-end-serve? (breakout-mode a-brkt))
-                            (> (pstream-current-frame RS-TICK-STREAM)
-                               (breakout-next-silent-frame a-brkt)))
-                       (if (ctrl-panel-one-player?
-                            (breakout-ctrl-panel a-brkt))
-                           (+ 1 (breakout-serve-num a-brkt))
-                           (+ 0.5 (breakout-serve-num a-brkt)))
-                       (breakout-serve-num a-brkt))
-                   (if (player-one? a-brkt)
-                       (update-player-bricks (breakout-p1 a-brkt))
-                       (breakout-p1 a-brkt))
-                   (if (player-one? a-brkt)
-                       (breakout-p2 a-brkt)
-                       (update-player-bricks (breakout-p2 a-brkt)))
-                   (breakout-high-scores a-brkt)
-                   (breakout-credit-count a-brkt)
-                   (breakout-ctrl-panel a-brkt)
-                   (if (and (play-mode-end-serve? (breakout-mode a-brkt))
-                            (> (pstream-current-frame RS-TICK-STREAM)
-                               (breakout-next-silent-frame a-brkt)))
-                       (make-play-mode (play-mode-game (breakout-mode a-brkt))
-                                       (play-mode-has-one-serve? (breakout-mode a-brkt))
-                                       #false)
-                       (breakout-mode a-brkt))
-                   (breakout-next-silent-frame a-brkt))))
-
-(define (serve a-game a-brkt)
-  (cond
-    [(string=? a-game "double")
-     (serve-ball 1 #true a-brkt)]
-    [else
-     (serve-ball 1 #false a-brkt)]))
+                       (+ (breakout-serve-num a-brkt)
+                          (if (ctrl-panel-one-player? (breakout-ctrl-panel a-brkt))
+                              1 1/2))
+                       (if p1? (update-player-bricks a-p1) a-p1)
+                       (if p1? a-p2 (update-player-bricks a-p2))
+                       (breakout-high-scores a-brkt)
+                       (breakout-credit-count a-brkt)
+                       (breakout-ctrl-panel a-brkt)
+                       (make-play-mode a-game (play-mode-has-one-serve? a-mode) #false)
+                       (breakout-next-silent-frame a-brkt)))
+      a-brkt))
 
 ; update-bricks : Breakout -> Breakout
 ; update the bricks of the current player playing in 'a-brkt'
@@ -1611,10 +1530,8 @@
           ; the current score of the current player
           (define a-score
             (player-score (if p1? a-p1 a-p2)))
-          ; current mode
-          (define a-mode (breakout-mode a-brkt))
           ; current game
-          (define a-game (play-mode-game a-play-mode))
+          (define a-game (play-mode-game (breakout-mode a-brkt)))
           ; the score received in the current tick
           (define tick-score
             (apply + (map (lambda (a-ball)
@@ -1668,35 +1585,31 @@
                     (breakout-mode a-brkt)
                     (breakout-next-silent-frame a-brkt)))))
 
-; try-andqueue-ticks : NonnegativeInteger Breakout -> Breakout
-; queue the next sequence of 'tick-score' tick sound(s) in a Pstream and
-; return a new 'a-brkt' with a new next silent frame
-(define (try-andqueue-ticks tick-score a-brkt)
-  (local (; frame to play next ticks
-          (define next-noise-frame (max (breakout-next-silent-frame a-brkt)
-                                        (pstream-current-frame RS-TICK-STREAM)))
-          ; frame to stop playing next ticks
-          (define new-next-silent-frame (+ next-noise-frame
-                                           (* RS-TICK-LENGTH tick-score))))
-    (cond
-      [(and (pstream? (pstream-set-volume! RS-TICK-STREAM 1))
-            (positive? tick-score)
-            SOUND?
-            (play-mode? (breakout-mode a-brkt)))
-       (andqueue RS-TICK-STREAM
-                 (rs-append* (make-list tick-score RS-TICK))
-                 next-noise-frame
-                 (make-breakout (breakout-loba a-brkt)
-                                (breakout-lop a-brkt)
-                                (breakout-serve-num a-brkt)
-                                (breakout-p1 a-brkt)
-                                (breakout-p2 a-brkt)
-                                (breakout-high-scores a-brkt)
-                                (breakout-credit-count a-brkt)
-                                (breakout-ctrl-panel a-brkt)
-                                (breakout-mode a-brkt)
-                                new-next-silent-frame))]
-      [else a-brkt])))
+; update-paddle-width : Breakout -> Breakout
+; update the current width of the paddles in 'a-brkt'
+(define (update-paddle-width a-brkt)
+  (local (; the current list of paddles
+          (define a-lop (breakout-lop a-brkt)))
+    (make-breakout (breakout-loba a-brkt)
+                   (if (and (play-mode? (breakout-mode a-brkt))
+                            (ormap (lambda (a-ball)
+                                     (backwall? (ball-tick-vobject a-ball)))
+                                   (breakout-loba a-brkt)))
+                       (map (lambda (a-paddle)
+                              (make-paddle
+                               (paddle-x a-paddle)
+                               (paddle-row a-paddle)
+                               PADDLE-MIN-WIDTH))
+                            a-lop)
+                       a-lop)
+                   (breakout-serve-num a-brkt)
+                   (breakout-p1 a-brkt)
+                   (breakout-p2 a-brkt)
+                   (breakout-high-scores a-brkt)
+                   (breakout-credit-count a-brkt)
+                   (breakout-ctrl-panel a-brkt)
+                   (breakout-mode a-brkt)
+                   (breakout-next-silent-frame a-brkt))))
 
 ;;; Rendering
 ;;;;;;;;;;;;;;
@@ -1984,6 +1897,42 @@
        (switch-game dir a-brkt)
        (andplay ding a-brkt))))
 
+(define (switch-game dir a-brkt0)
+  (local (; current control panel
+          (define a-ctrl-panel (breakout-ctrl-panel a-brkt0))
+          ; current player count
+          (define a-game (ctrl-panel-game a-ctrl-panel))
+          ; new breakout
+          (define a-brkt
+            (if (play-mode? (breakout-mode a-brkt0))
+                (make-breakout (breakout-loba a-brkt0)
+                               (breakout-lop a-brkt0)
+                               (breakout-serve-num a-brkt0)
+                               (breakout-p1 a-brkt0)
+                               (breakout-p2 a-brkt0)
+                               (breakout-high-scores a-brkt0)
+                               (breakout-credit-count a-brkt0)
+                               a-ctrl-panel
+                               (make-play-mode a-game #false #false)
+                               (breakout-next-silent-frame a-brkt0))
+                a-brkt0)))
+    (update-paddle-x
+     (if (string=? dir "next")
+         (cond
+           [(string=? a-game "double")
+            a-brkt]
+           [(string=? a-game "cavity")
+            (reset-game DOUBLE-BALLS-0 DOUBLE-BRICKS-0 DOUBLE-PADDLES-0 a-brkt)]
+           [(string=? a-game "progressive")
+            (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)])
+         (cond
+           [(string=? a-game "double")
+            (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 CAVITY-PADDLES-0 a-brkt)]
+           [(string=? a-game "cavity")
+            (reset-game PROGRESSIVE-BALLS-0 PROGRESSIVE-BRICKS-0 PROGRESSIVE-PADDLES-0 a-brkt)]
+           [(string=? a-game "progressive")
+            a-brkt])))))
+
 (define (try-set-player-count n a-brkt)
   (if (ready-to-play? (breakout-mode a-brkt))
       (if (> n (breakout-credit-count a-brkt))
@@ -2017,7 +1966,7 @@
 (define (handle-mouse a-brkt x y mouse)
   (cond
     [(mouse=? mouse "move")
-     (try-update-paddles
+     (try-update-paddle-x
       (min (- (+ (col->x (sub1 PF-COL-COUNT)) PF-SPACING)
               (paddle-width (first (breakout-lop a-brkt))))
            (max (- x (/ (paddle-width (first (breakout-lop a-brkt))) 2))
@@ -2026,13 +1975,14 @@
     [else
      a-brkt]))
 
-(define (try-update-paddles x a-brkt)
+(define (try-update-paddle-x x a-brkt)
   (local ((define new-brkt (set-ctrl-panel-paddle-posn x a-brkt)))
     (if (attract? (breakout-mode new-brkt))
         new-brkt
-        (update-paddles new-brkt))))
+        (update-paddle-x new-brkt))))
 
-(define (update-paddles a-brkt)
+; require: (attract? (breakout-mode a-brkt)) is #false
+(define (update-paddle-x a-brkt)
   (local ((define a-ctrl-panel (breakout-ctrl-panel a-brkt))
           (define x (ctrl-panel-paddle-posn a-ctrl-panel)))
     (make-breakout (breakout-loba a-brkt)
@@ -2051,26 +2001,58 @@
                    (breakout-mode a-brkt)
                    (breakout-next-silent-frame a-brkt))))
 
-(define (update-paddle-width a-brkt)
-  (make-breakout (breakout-loba a-brkt)
-                 (if (and (play-mode? (breakout-mode a-brkt))
-                          (ormap (lambda (a-ball)
-                                   (backwall? (ball-tick-vobject a-ball)))
-                                 (breakout-loba a-brkt)))
-                     (map (lambda (a-paddle)
-                            (make-paddle (paddle-x a-paddle)
-                                         (paddle-row a-paddle)
-                                         PADDLE-MIN-WIDTH))
-                          (breakout-lop a-brkt))
-                     (breakout-lop a-brkt))
-                 (breakout-serve-num a-brkt)
-                 (breakout-p1 a-brkt)
-                 (breakout-p2 a-brkt)
-                 (breakout-high-scores a-brkt)
-                 (breakout-credit-count a-brkt)
-                 (breakout-ctrl-panel a-brkt)
-                 (breakout-mode a-brkt)
-                 (breakout-next-silent-frame a-brkt)))
+(define (switch-ctrl-panel-game dir a-brkt)
+  (local (; current control panel
+          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
+          ; current player count
+          (define a-game (ctrl-panel-game a-ctrl-panel)))
+    (if (string=? dir "next")
+        (cond
+          [(string=? a-game "double")
+           a-brkt]
+          [(string=? a-game "cavity")
+           (set-ctrl-panel-game "double" a-brkt)]
+          [(string=? a-game "progressive")
+           (set-ctrl-panel-game "cavity" a-brkt)])
+        (cond
+          [(string=? a-game "double")
+           (set-ctrl-panel-game "cavity" a-brkt)]
+          [(string=? a-game "cavity")
+           (set-ctrl-panel-game "progressive" a-brkt)]
+          [(string=? a-game "progressive")
+           a-brkt]))))
+
+(define (set-ctrl-panel-game a-game a-brkt)
+  (local (; current control panel
+          (define a-ctrl-panel (breakout-ctrl-panel a-brkt)))
+    (make-breakout (breakout-loba a-brkt)
+                   (breakout-lop a-brkt)
+                   (breakout-serve-num a-brkt)
+                   (breakout-p1 a-brkt)
+                   (breakout-p2 a-brkt)
+                   (breakout-high-scores a-brkt)
+                   (breakout-credit-count a-brkt)
+                   (make-ctrl-panel (ctrl-panel-one-player? a-ctrl-panel)
+                                    (ctrl-panel-paddle-posn a-ctrl-panel)
+                                    a-game)
+                   (breakout-mode a-brkt)
+                   (breakout-next-silent-frame a-brkt))))
+
+(define (set-ctrl-panel-paddle-posn x a-brkt)
+  (local (; current control panel
+          (define a-ctrl-panel (breakout-ctrl-panel a-brkt)))
+    (make-breakout (breakout-loba a-brkt)
+                   (breakout-lop a-brkt)
+                   (breakout-serve-num a-brkt)
+                   (breakout-p1 a-brkt)
+                   (breakout-p2 a-brkt)
+                   (breakout-high-scores a-brkt)
+                   (breakout-credit-count a-brkt)
+                   (make-ctrl-panel (ctrl-panel-one-player? a-ctrl-panel)
+                                    x
+                                    (ctrl-panel-game a-ctrl-panel))
+                   (breakout-mode a-brkt)
+                   (breakout-next-silent-frame a-brkt))))
 
 ;;; Main function
 ;;;;;;;;;;;;;;;;;;
