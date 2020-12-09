@@ -15,7 +15,7 @@
 ;;;;;;;;;;;;;;
 
 ; seconds per clock tick
-(define SPT 1/30)
+(define SPT 1/60)
 
 ; scale factor for entire canvas
 (define SCALE-FACTOR 3)
@@ -76,9 +76,6 @@
 (define PADDLE-HITS-BRICK-PROGRESSION-0 8)
 (define PADDLE-HITS-BRICK-PROGRESSION-1 20)
 (define PADDLE-HITS-BRICK-PROGRESSION-2 48)
-
-; number of rows above the paddle to clear after every serve in the Progressive game mode
-(define PROGRESSIVE-CLEAR-ROWS 4)
 
 ; coin mode blink duration in seconds
 (define COIN-MODE-BLINK-DUR 2)
@@ -155,8 +152,12 @@
 (define PROGRESSIVE-MAX-NUM-BALLS-0 1)
 
 ; paddle row numbers
-(define CAVITY-PADDLE-ROW-NUMS '(29))
-(define DOUBLE-PADDLE-ROW-NUMS '(24 29))
+; for Cavity
+(define CAVITY-PADDLE-ROW 29)
+; for Double
+(define DOUBLE-PADDLE-ROW-0 24)
+(define DOUBLE-PADDLE-ROW-1 29)
+; for Progressive
 (define PROGRESSIVE-PADDLE-ROW 29)
 
 ; WAV file path of the tick sound
@@ -185,20 +186,6 @@
 (define PRIMARY-FONT-COLOR FG-COLOR-5)
 (define SECONDARY-FONT-COLOR FG-COLOR-3)
 
-; coin mode blink duration in milliseconds
-(define COIN-MODE-BLINK-DUR-MS (* COIN-MODE-BLINK-DUR 1000))
-; score blink duration in milliseconds
-(define SCORE-BLINK-DUR-MS (* SCORE-BLINK-DUR 1000))
-
-; ball speed range
-(define BALL-SPEED-RANGE (- BALL-MAX-SPEED BALL-MIN-SPEED))
-; ball speeds (pixels per second)
-(define BALL-SPEED-0 BALL-MIN-SPEED)
-(define BALL-SPEED-1 (+ BALL-MIN-SPEED (* 1/5 BALL-SPEED-RANGE)))
-(define BALL-SPEED-2 (+ BALL-MIN-SPEED (* 2/5 BALL-SPEED-RANGE)))
-(define BALL-SPEED-3 (+ BALL-MIN-SPEED (* 3/5 BALL-SPEED-RANGE)))
-(define BALL-SPEED-4 (+ BALL-MIN-SPEED (* 4/5 BALL-SPEED-RANGE)))
-(define BALL-SPEED-5 BALL-MAX-SPEED)
 ; ball directions in degrees
 (define BALL-DIR-RDN-0 (* BALL-DIR-DEG-0 pi 1/180))
 (define BALL-DIR-RDN-1 (* BALL-DIR-DEG-1 pi 1/180))
@@ -1612,7 +1599,8 @@
                              (player-loba a-player)
                              (if (string=? "progressive" a-game)
                                  (filter (lambda (a-brick)
-                                           (> (- PROGRESSIVE-BRICK-WALL-HEIGHT 4)
+                                           (> (- PROGRESSIVE-PADDLE-ROW
+                                                 PROGRESSIVE-BRICK-WALL-HEIGHT)
                                               (brick-row a-brick)))
                                          (player-lobr a-player))
                                  (player-lobr a-player))
@@ -1954,7 +1942,7 @@
       (if (zero? high-score)
           bg-img
           (place-image/align (beside HIGH-SCORE-PREFIX-IMG
-                                     (string->bitmap #false (number->atari-string high-score)))
+                                     (string->bitmap #true (number->atari-string high-score)))
                              (col->x COIN-MODE-COL)
                              (row->y COIN-MODE-ROW)
                              "right" "top"
@@ -1975,9 +1963,8 @@
                                (row->y rol)
                                "right" "top"
                                bg-img)))
-    (if (<= 0
-            (modulo (current-milliseconds) SCORE-BLINK-DUR-MS)
-            (/ SCORE-BLINK-DUR-MS 2))
+    (if (<= 0 (modulo (current-milliseconds) (* SCORE-BLINK-DUR 1000))
+            (* SCORE-BLINK-DUR 500))
         (if flashing? bg-img score-img)
         score-img)))
 
@@ -1989,11 +1976,10 @@
     [else
      (local (; first Brick in 'a-lobr'
              (define a-brick (first a-lobr)))
-       (place-image (crop (+ (col->x (brick-col a-brick)) (/ PF-SPACING 2))
-                          (+ (row->y (brick-row a-brick)) (/ PF-SPACING 2))
-                          IBRICK-WIDTH
-                          IBRICK-HEIGHT
-                          OVERLAY-IMG)
+       (place-image (rectangle IBRICK-WIDTH
+                               IBRICK-HEIGHT
+                               "solid"
+                               (row->color (brick-row a-brick)))
                     (+ (col->x (brick-col a-brick))
                        (/ BRICK-WIDTH 2))
                     (+ (row->y (brick-row a-brick))
@@ -2010,11 +1996,11 @@
              (define a-ball (first a-loba)))
        (if (positive? (ball-serve-delay a-ball))
            (render-balls (rest a-loba) bg-img)
-           (place-image (crop (- (ball-cx a-ball) BALL-RADIUS)
-                              (- (ball-cy a-ball) BALL-RADIUS)
-                              (* 2 BALL-RADIUS)
-                              (* 2 BALL-RADIUS)
-                              OVERLAY-IMG)
+           (place-image (square (* 2 BALL-RADIUS)
+                                "solid"
+                                (row->color
+                                 (floor (/ (ball-cy a-ball)
+                                           CHAR-BLK-LENGTH))))
                         (ball-cx a-ball)
                         (ball-cy a-ball)
                         (render-balls (rest a-loba) bg-img))))]))
@@ -2027,11 +2013,10 @@
     [else
      (local (; first Paddle in 'a-lop'
              (define a-paddle (first a-lop)))
-       (place-image/align (crop (+ (paddle-x a-paddle) (/ PF-SPACING 2))
-                                (row->y (paddle-row a-paddle))
-                                (- (paddle-width a-paddle) PF-SPACING)
-                                IBRICK-HEIGHT
-                                OVERLAY-IMG)
+       (place-image/align (rectangle (- (paddle-width a-paddle) PF-SPACING)
+                                     IBRICK-HEIGHT
+                                     "solid"
+                                     (row->color (paddle-row a-paddle)))
                           (+ (paddle-x a-paddle) (/ PF-SPACING 2))
                           (row->y (paddle-row a-paddle))
                           "left" "top"
