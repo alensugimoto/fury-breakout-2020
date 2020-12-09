@@ -17,9 +17,6 @@
 ; seconds per clock tick
 (define SPT 1/30)
 
-; whether or not to enable sound
-(define SOUND? #true)
-
 ; scale factor for entire canvas
 (define SCALE-FACTOR 3)
 ; character block side length before scaling
@@ -198,6 +195,10 @@
 ;;; Derived constants
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;
+
+; primary and secondary font colors
+(define PRIMARY-FONT-COLOR FG-COLOR-5)
+(define SECONDARY-FONT-COLOR FG-COLOR-3)
 
 ; coin mode blink duration in milliseconds
 (define COIN-MODE-BLINK-DUR-MS (* COIN-MODE-BLINK-DUR 1000))
@@ -563,11 +564,92 @@
                  MODE-0
                  NEXT-SILENT-FRAME-0))
 
-;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Auxiliary
+;;; Additional constants and functions for custom font
 ;;;
-;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; byte-list->bitmap : Boolean List<Byte> -> Image
+; convert a list of Bytes to a bitmap with depending on 'primary-font?'
+(define (byte-list->bitmap primary-font? lob)
+  (freeze
+   (scale SCALE-FACTOR
+          (color-list->bitmap (map (lambda (bit)
+                                     (if (string=? bit "1")
+                                         (if primary-font?
+                                             PRIMARY-FONT-COLOR
+                                             SECONDARY-FONT-COLOR)
+                                         BG-COLOR))
+                                   (explode (apply string-append lob)))
+                              CHAR-BLK-BIT-LENGTH
+                              CHAR-BLK-BIT-LENGTH))))
+
+; vectors of character bitmaps corresponding to each font color
+(define PRIMARY-CHAR-BITMAPS
+  (list->vector
+   (read-csv-file/rows FONT-PATH
+                       (lambda (lob) (byte-list->bitmap #true lob)))))
+(define SECONDARY-CHAR-BITMAPS
+  (list->vector
+   (read-csv-file/rows FONT-PATH
+                       (lambda (lob) (byte-list->bitmap #false lob)))))
+
+; string->bitmap : Boolean String -> Image
+; convert a string to a bitmap with a font color depending on 'primary-font?'
+(define (string->bitmap primary-font? str)
+  (local (; 1string-list->bitmap : List<String> -> Image
+          ; convert a list of 1-letter strings to a bitmap with a font color of 'color'
+          (define (1string-list->bitmap strs)
+            (cond
+              [(empty? (rest strs))
+               (1string->bitmap (first strs))]
+              [else
+               (beside (1string->bitmap (first strs))
+                       (1string-list->bitmap (rest strs)))]))
+          ; 1string->bitmap : Color String -> Image
+          ; convert a 1-letter string to a bitmap with a font color of 'color'
+          (define (1string->bitmap str)
+            (vector-ref (if primary-font?
+                            PRIMARY-CHAR-BITMAPS
+                            SECONDARY-CHAR-BITMAPS)
+                        (string->int str))))
+  (1string-list->bitmap (explode str))))
+
+; image of high score prefix text
+(define HIGH-SCORE-PREFIX-IMG
+  (string->bitmap #true HIGH-SCORE-PREFIX))
+; image of coin mode text
+(define COIN-MODE-IMG
+  (string->bitmap #true COIN-MODE))
+; image of bonus text for each Super Breakout game
+(define DOUBLE-BONUS-IMG
+  (string->bitmap #false (string-append BONUS-PREFIX
+                                        (number->string DOUBLE-BONUS))))
+(define CAVITY-BONUS-IMG
+  (string->bitmap #false (string-append BONUS-PREFIX
+                                        (number->string CAVITY-BONUS))))
+(define PROGRESSIVE-BONUS-IMG
+  (string->bitmap #false (string-append BONUS-PREFIX
+                                        (number->string PROGRESSIVE-BONUS))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Auxiliary functions
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;
+
+#|
+; col->x : NonnegativeInteger -> Number
+; convert column number 'col' into a position in the x-coordinate
+(define (col->x col)
+  (* col CHAR-BLK-LENGTH))
+
+; row->y : NonnegativeInteger -> Number
+; convert row number 'row' into a position in the y-coordinate
+(define (row->y row)
+  (* row CHAR-BLK-LENGTH))
+|#
 
 ; get-first : [X -> Boolean] List<X> -> Maybe<X>
 ; get the first element of list 'l' that satisfies predicate 'p?', if it exists;
@@ -582,9 +664,11 @@
            first-l
            (get-first p? (rest l))))]))
 
-; brick-hitbox : Brick -> Hitbox
+;; Hitbox
+
+; brick->hitbox : Brick -> Hitbox
 ; get the hitbox of Brick 'a-brick'
-(define (brick-hitbox a-brick)
+(define (brick->hitbox a-brick)
   (local (; upper left point of 'a-brlck'
           (define x (col->x (brick-col a-brick)))
           (define y (row->y (brick-row a-brick)))
@@ -595,9 +679,9 @@
                  (+ x BRICK-WIDTH)
                  (+ a-top BRICK-HEIGHT))))
 
-; paddle-hitbox : Paddle -> Hitbox
+; paddle->hitbox : Paddle -> Hitbox
 ; get the hitbox of Paddle 'a-paddle'
-(define (paddle-hitbox a-paddle)
+(define (paddle->hitbox a-paddle)
   (local (; upper left point of 'a-paddle'
           (define x (paddle-x a-paddle))
           (define y (row->y (paddle-row a-paddle)))
@@ -608,33 +692,65 @@
                  (+ x (paddle-width a-paddle) (/ PF-SPACING 2))
                  (+ y (- BRICK-HEIGHT (* PF-SPACING 3/2))))))
 
+;; Sound
+
 ; try-andplay : Rsound Breakout X -> X
 ; try to play 'rsound', then return 'val'
 (define (try-andplay rsound a-brkt val)
-  (if (and SOUND? (play-mode? (breakout-mode a-brkt)))
+  (if (play-mode? (breakout-mode a-brkt))
       (andplay rsound val)
       val))
 
-; get-game : Breakout -> Game
-; return the current game in 'a-brkt'
-(define (get-game a-brkt)
-  (local (; current mode in 'a-brkt'
-          (define a-mode (breakout-mode a-brkt)))
+; try-andqueue-ticks : NonnegativeInteger Breakout -> Breakout
+; queue the next sequence of 'tick-score' tick sound(s) in a Pstream and
+; return a new 'a-brkt' with a new next silent frame
+(define (try-andqueue-ticks tick-score a-brkt)
+  (local (; frame to play next ticks
+          (define next-noise-frame (max (breakout-next-silent-frame a-brkt)
+                                        (pstream-current-frame RS-TICK-STREAM)))
+          ; frame to stop playing next ticks
+          (define new-next-silent-frame (+ next-noise-frame
+                                           (* RS-TICK-LENGTH tick-score))))
     (cond
-      [(play-mode? a-mode)
-       (play-mode-game a-mode)]
-      [(attract? a-mode)
-       (attract-game a-mode)]
-      [else
-       (ctrl-panel-game (breakout-ctrl-panel a-brkt))])))
+      [(and (pstream? (pstream-set-volume! RS-TICK-STREAM 1))
+            (positive? tick-score)
+            (play-mode? (breakout-mode a-brkt)))
+       (andqueue RS-TICK-STREAM
+                 (rs-append* (make-list tick-score RS-TICK))
+                 next-noise-frame
+                 (make-breakout (breakout-loba a-brkt)
+                                (breakout-lop a-brkt)
+                                (breakout-serve-num a-brkt)
+                                (breakout-p1 a-brkt)
+                                (breakout-p2 a-brkt)
+                                (breakout-high-scores a-brkt)
+                                (breakout-credit-count a-brkt)
+                                (breakout-ctrl-panel a-brkt)
+                                (breakout-mode a-brkt)
+                                new-next-silent-frame))]
+      [else a-brkt])))
+
+;; Ball
+
+; reflect-h : Angle -> Angle
+; reflect Angle 'a' horizontally
+(define (reflect-h a)
+  (* (sgn a) (- pi (abs a))))
 
 ; move : Ball Breakout -> Ball
 ; move 'a-ball' for one clock tick considering the sidewalls only
 (define (move a-ball a-brkt)
-  (local (; final position of 'a-ball' after one clock tick
+  (local (; direction of 'a-ball'
+          (define a-dir (ball-dir a-ball))
+          ; speed of 'a-ball' in pixels per tick
+          (define tick-speed (* (ball-speed a-ball) SPT))
+          ; number of pixels 'a-ball' moves horizontally and vertically
+          (define vx (* (cos a-dir) tick-speed))
+          (define vy (* (sin a-dir) tick-speed))
+          ; final position of 'a-ball' after one clock tick
           ; without considering any collisions
-          (define x2 (+ (ball-cx a-ball) (ball-vx a-ball)))
-          (define y2 (+ (ball-cy a-ball) (ball-vy a-ball))))
+          (define x2 (+ (ball-cx a-ball) vx))
+          (define y2 (+ (ball-cy a-ball) vy)))
     (cond
       ; right sidewall collision
       [(>= x2 BALL-MAX-X)
@@ -671,35 +787,54 @@
                   (ball-serve-delay a-ball)
                   (ball-has-child? a-ball))])))
 
-; try-andqueue-ticks : NonnegativeInteger Breakout -> Breakout
-; queue the next sequence of 'tick-score' tick sound(s) in a Pstream and
-; return a new 'a-brkt' with a new next silent frame
-(define (try-andqueue-ticks tick-score a-brkt)
-  (local (; frame to play next ticks
-          (define next-noise-frame (max (breakout-next-silent-frame a-brkt)
-                                        (pstream-current-frame RS-TICK-STREAM)))
-          ; frame to stop playing next ticks
-          (define new-next-silent-frame (+ next-noise-frame
-                                           (* RS-TICK-LENGTH tick-score))))
+; serve : Game Breakout -> Breakout
+; serve one ball based on 'a-game' in 'a-brkt'
+(define (serve a-game a-brkt)
+  (cond
+    [(string=? a-game "double")
+     (serve-ball 1 #true a-brkt)]
+    [else
+     (serve-ball 1 #false a-brkt)]))
+
+; serve-ball : NonnegativeNumber Breakout -> Breakout
+; serve one random ball in 'a-brkt'
+(define (serve-ball serve-delay has-child? a-brkt)
+  (local ((define new-ball
+            (make-ball (+ BALL-MIN-X (random (- BALL-MAX-X BALL-MIN-X -1)))
+                       (/ PF-HEIGHT 2)
+                       BALL-MIN-SPEED
+                       (vector-ref ANGLES (random 4))
+                       NOTHING
+                       0 0 serve-delay has-child?)))
+  (make-breakout (cons new-ball (breakout-loba a-brkt))
+                 (breakout-lop a-brkt)
+                 (breakout-serve-num a-brkt)
+                 (breakout-p1 a-brkt)
+                 (breakout-p2 a-brkt)
+                 (breakout-high-scores a-brkt)
+                 (breakout-credit-count a-brkt)
+                 (breakout-ctrl-panel a-brkt)
+                 (if (play-mode? (breakout-mode a-brkt))
+                     (make-play-mode (play-mode-game (breakout-mode a-brkt))
+                                     #true
+                                     #false)
+                     (breakout-mode a-brkt))
+                 (breakout-next-silent-frame a-brkt))))
+
+;; General
+
+; get-game : Breakout -> Game
+; return the current game in 'a-brkt'
+(define (get-game a-brkt)
+  (local (; current mode in 'a-brkt'
+          (define a-mode (breakout-mode a-brkt)))
     (cond
-      [(and (pstream? (pstream-set-volume! RS-TICK-STREAM 1))
-            (positive? tick-score)
-            SOUND?
-            (play-mode? (breakout-mode a-brkt)))
-       (andqueue RS-TICK-STREAM
-                 (rs-append* (make-list tick-score RS-TICK))
-                 next-noise-frame
-                 (make-breakout (breakout-loba a-brkt)
-                                (breakout-lop a-brkt)
-                                (breakout-serve-num a-brkt)
-                                (breakout-p1 a-brkt)
-                                (breakout-p2 a-brkt)
-                                (breakout-high-scores a-brkt)
-                                (breakout-credit-count a-brkt)
-                                (breakout-ctrl-panel a-brkt)
-                                (breakout-mode a-brkt)
-                                new-next-silent-frame))]
-      [else a-brkt])))
+      [(play-mode? a-mode)
+       (play-mode-game a-mode)]
+      [(attract? a-mode)
+       (attract-game a-mode)]
+      [else
+       (ctrl-panel-game (breakout-ctrl-panel a-brkt))])))
 
 ; reset-game : List<Ball> List<Brick> List<Paddle> Breakout -> Breakout
 ; reset the game current displayed in 'a-brkt' to include 'a-loba', 'a-lobr', and 'a-lop'
@@ -716,14 +851,7 @@
                  (breakout-mode a-brkt)
                  (breakout-next-silent-frame a-brkt)))
 
-; serve : Game Breakout -> Breakout
-; serve one ball based on 'a-game' in 'a-brkt'
-(define (serve a-game a-brkt)
-  (cond
-    [(string=? a-game "double")
-     (serve-ball 1 #true a-brkt)]
-    [else
-     (serve-ball 1 #false a-brkt)]))
+;; Super Breakout modes
 
 ; set-attract : Boolean Game Breakout -> Breakout
 ; switch 'a-brkt' into attract mode with 'a-v1?' and 'a-game'
@@ -931,15 +1059,6 @@
            a-brkt])]
        [else a-brkt]))))
 
-(define (get-bonus a-game)
-  (cond
-    [(string=? a-game "cavity")
-     1400]
-    [(string=? a-game "double")
-     1500]
-    [(string=? a-game "progressive")
-     2000]))
-
 (define (get-high-score a-game a-brkt)
   (cond
     [(string=? a-game "cavity")
@@ -959,35 +1078,6 @@
         (string-append (replicate (- 4 score-string-length) " ")
                        score-string))))
 
-; ball-vx : Ball -> Number
-; get the velocity in the x-direction of 'a-ball'
-(define (ball-vx a-ball)
-  (* (cos (ball-dir a-ball))
-     (ball-speed a-ball)
-     SPT))
-
-; ball-vy : Ball -> Number
-; get the velocity in the y-direction of 'a-ball'
-(define (ball-vy a-ball)
-  (* (sin (ball-dir a-ball))
-     (ball-speed a-ball)
-     SPT))
-
-; reflect-h : Angle -> Angle
-; reflect Angle 'a' horizontally
-(define (reflect-h a)
-  (* (sgn a) (- pi (abs a))))
-
-; reflect-v : Angle -> Angle
-; reflect Angle 'a' vertically
-(define (reflect-v a)
-  (- a))
-
-(define (set-angle-60 a)
-  (if (< 0 (abs a) (/ pi 2))
-      (* (sgn a) pi 1/3)
-      (* (sgn a) pi 2/3)))
-
 ; row->color : NonnegativeInteger -> Color
 ; convert row number 'row' into a Color
 (define (row->color row)
@@ -1006,12 +1096,12 @@
 
 (define (player-one? a-brkt)
   (integer? (breakout-serve-num a-brkt)))
-  
+
 ; get-dir : Number Paddle -> Angle
 ; get an angle of reflection of a point with horizontal position 'x'
 ; given that it collided with Paddle 'a-paddle'
 (define (get-dir x paddle-hit-count ball-speed a-paddle)
-  (local ((define a-hitbox (paddle-hitbox a-paddle))
+  (local ((define a-hitbox (paddle->hitbox a-paddle))
           (define left (hitbox-left a-hitbox))
           (define right (hitbox-right a-hitbox))
           (define width (- right left)))
@@ -1112,76 +1202,6 @@
   (<= 1 (brick-row a-brick) 8))
 
 (define ANGLES (vector (* pi 1/4) (* pi 1/3) (* pi 2/3) (* pi 3/4)))
-
-; serve-ball : NonnegativeInteger Breakout -> Breakout
-; serve one random ball in 'a-brkt'
-(define (serve-ball serve-delay has-child? a-brkt)
-  (local ((define new-ball
-            (make-ball (+ BALL-MIN-X (random (- BALL-MAX-X BALL-MIN-X -1)))
-                       (/ PF-HEIGHT 2)
-                       BALL-MIN-SPEED
-                       (vector-ref ANGLES (random 4))
-                       NOTHING
-                       0 0 serve-delay has-child?)))
-  (make-breakout (cons new-ball (breakout-loba a-brkt))
-                 (breakout-lop a-brkt)
-                 (breakout-serve-num a-brkt)
-                 (breakout-p1 a-brkt)
-                 (breakout-p2 a-brkt)
-                 (breakout-high-scores a-brkt)
-                 (breakout-credit-count a-brkt)
-                 (breakout-ctrl-panel a-brkt)
-                 (if (play-mode? (breakout-mode a-brkt))
-                     (make-play-mode (play-mode-game (breakout-mode a-brkt))
-                                     #true
-                                     #false)
-                     (breakout-mode a-brkt))
-                 (breakout-next-silent-frame a-brkt))))
-
-;;; Font functions
-
-; byte-list->bitmap : List<Byte> -> Image
-; convert a list of Bytes to a bitmap
-(define (byte-list->bitmap color lob)
-  (scale
-   SCALE-FACTOR
-   (color-list->bitmap
-    (map (lambda (bit) (if (string=? bit "1") color BG-COLOR))
-         (explode (apply string-append lob)))
-    CHAR-BLK-BIT-LENGTH
-    CHAR-BLK-BIT-LENGTH)))
-
-; list of character bitmaps
-(define CHAR-BITMAPS
-  (build-vector PF-ROW-COUNT
-                (lambda (i)
-                  (list->vector
-                   (read-csv-file/rows FONT-PATH
-                                       (lambda (lob)
-                                         (byte-list->bitmap (row->color i) lob)))))))
-
-; string->bitmap : String -> Image
-; convert a string to a bitmap
-(define (string->bitmap row str)
-  (1string-list->bitmap
-   row
-   (explode
-    (string-upcase str))))
-
-; 1string-list->bitmap : List<String> -> Image
-; convert a list of 1-letter strings to a bitmap
-(define (1string-list->bitmap row strs)
-  (cond
-    [(empty? (rest strs))
-     (1string->bitmap row (first strs))]
-    [else
-     (beside (1string->bitmap row (first strs))
-             (1string-list->bitmap row (rest strs)))]))
-
-; 1string->bitmap : String -> Image
-; convert a 1-letter string to a bitmap
-(define (1string->bitmap row str)
-  (vector-ref (vector-ref CHAR-BITMAPS row) (string->int str)))
 
 ;;;;;;;;;;;;;;;;;;
 ;;;
@@ -1352,11 +1372,15 @@
           ; 'new-ball' position
           (define x3 (ball-cx new-ball))
           (define y3 (ball-cy new-ball))
+          ; reflect-v : Angle -> Angle
+          ; reflect Angle 'a' vertically
+          (define (reflect-v a)
+            (- a))
           ; brick-collision? : Ball Brick -> Boolean
           ; check whether 'a-ball' is in collision with 'a-brick'
           (define (brick-collision? a-ball a-brick)
             (local (; hitbox of 'a-brick'
-                    (define a-hitbox (brick-hitbox a-brick))
+                    (define a-hitbox (brick->hitbox a-brick))
                     ; position of the sides of 'a-hitbox'
                     (define left (hitbox-left a-hitbox))
                     (define top (hitbox-top a-hitbox))
@@ -1386,7 +1410,7 @@
           ; check whether 'new-ball' is in collision with 'a-paddle'
           (define (paddle-collision? a-paddle)
             (local (; hitbox of 'a-brick'
-                    (define a-hitbox (paddle-hitbox a-paddle))
+                    (define a-hitbox (paddle->hitbox a-paddle))
                     ; positions of the sides of 'a-hitbox'
                     (define left (hitbox-left a-hitbox))
                     (define top (hitbox-top a-hitbox))
@@ -1430,7 +1454,13 @@
                                  collided-brick
                                  (ball-speed new-ball))
                       (reflect-v (if (highpoint-brick? collided-brick)
-                                     (set-angle-60 (ball-dir new-ball))
+                                     (local (; set-angle-60 : Angle -> Angle
+                                             ; change Angle 'a' such that its reference angle is (/ pi 3)
+                                             (define (set-angle-60 a)
+                                               (if (< 0 (abs a) (/ pi 2))
+                                                   (* (sgn a) pi 1/3)
+                                                   (* (sgn a) pi 2/3))))
+                                       (set-angle-60 (ball-dir new-ball)))
                                      (ball-dir new-ball)))
                       collided-brick
                       collided-brick
@@ -1732,7 +1762,14 @@
           ; current high scores
           (define a-high-scores (breakout-high-scores a-brkt))
           ; whether or not the current player beat the bonus of 'a-game'
-          (define beat-bonus? (>= new-score (get-bonus a-game)))
+          (define beat-bonus?
+            (>= new-score (cond
+                            [(string=? a-game "cavity")
+                             CAVITY-BONUS]
+                            [(string=? a-game "double")
+                             DOUBLE-BONUS]
+                            [(string=? a-game "progressive")
+                             PROGRESSIVE-BONUS])))
           ; update-player-score : Player -> Player
           ; update the score of 'a-player' with 'new-score'
           (define (update-player-score a-player)
@@ -1878,23 +1915,23 @@
 ; render-bonus : Game Image -> Image
 ; render the bonus score level on 'bg-img' given 'a-game'
 (define (render-bonus a-game bg-img)
-  (place-image/align
-   (string->bitmap
-    BONUS-ROW
-    (string-append BONUS-PREFIX
-                   (number->atari-string
-                    (get-bonus a-game))))
-   (col->x BONUS-COL)
-   (row->y BONUS-ROW)
-   "right" "top"
-   bg-img))
+  (place-image/align (cond
+                       [(string=? a-game "cavity")
+                        CAVITY-BONUS-IMG]
+                       [(string=? a-game "double")
+                        DOUBLE-BONUS-IMG]
+                       [(string=? a-game "progressive")
+                        PROGRESSIVE-BONUS-IMG])
+                     (col->x BONUS-COL)
+                     (row->y BONUS-ROW)
+                     "right" "top"
+                     bg-img))
 
 ; render-serve-num : NonnegativeNumber Image -> Image
 ; render the current serve number 'a-serve-num' over 'bg-img'
 (define (render-serve-num a-serve-num bg-img)
-  (place-image/align (string->bitmap SERVE-NUM-ROW
-                                     (number->string (min GAME-LENGTH
-                                                          (floor a-serve-num))))
+  (place-image/align (string->bitmap #true (number->string (min GAME-LENGTH
+                                                                (floor a-serve-num))))
                      (col->x SERVE-NUM-COL)
                      (row->y SERVE-NUM-ROW)
                      "right" "top"
@@ -1903,31 +1940,29 @@
 ; render-coin-mode : Mode Image -> Image
 ; render the coin mode over 'bg-img' based on 'high-score' 
 (define (render-coin-mode high-score bg-img)
-  (if (<= 0
-          (modulo (current-milliseconds) COIN-MODE-BLINK-DUR-MS)
-          (/ COIN-MODE-BLINK-DUR-MS 2))
+  (if (<= 0 (modulo (current-milliseconds)
+                    (* COIN-MODE-BLINK-DUR 1000))
+          (* COIN-MODE-BLINK-DUR 500))
       (if (zero? high-score)
           bg-img
-          (place-image/align
-           (string->bitmap COIN-MODE-ROW (string-append HIGH-SCORE-PREFIX
-                                                        (number->atari-string high-score)))
-           (col->x COIN-MODE-COL)
-           (row->y COIN-MODE-ROW)
-           "right" "top"
-           bg-img))
-      (place-image/align
-       (string->bitmap COIN-MODE-ROW COIN-MODE)
-       (col->x COIN-MODE-COL)
-       (row->y COIN-MODE-ROW)
-       "right" "top"
-       bg-img)))
+          (place-image/align (beside HIGH-SCORE-PREFIX-IMG
+                                     (string->bitmap #false (number->atari-string high-score)))
+                             (col->x COIN-MODE-COL)
+                             (row->y COIN-MODE-ROW)
+                             "right" "top"
+                             bg-img))
+      (place-image/align COIN-MODE-IMG
+                         (col->x COIN-MODE-COL)
+                         (row->y COIN-MODE-ROW)
+                         "right" "top"
+                         bg-img)))
 
 ; render-player-score : NonnegativeInteger NonnegativeInteger NonnegativeInteger Boolean Image -> Image
 ; render 'a-score' over 'bg-img' with its upper right at column 'col' and row 'row' based on 'flashing?'
 (define (render-player-score a-score col rol flashing? bg-img)
   (local (; final image of 'a-score' over 'bg-img'
           (define score-img
-            (place-image/align (string->bitmap rol (number->atari-string a-score))
+            (place-image/align (string->bitmap #true (number->atari-string a-score))
                                (col->x col)
                                (row->y rol)
                                "right" "top"
