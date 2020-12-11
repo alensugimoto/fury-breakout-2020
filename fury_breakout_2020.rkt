@@ -1,12 +1,16 @@
 ;; The first three lines of this file were inserted by DrRacket. They record metadata
 ;; about the language level of this file in a form that our tools can easily process.
-#reader(lib "htdp-advanced-reader.ss" "lang")((modname Fury_Breakout_2020) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #f #t none #f () #f)))
+#reader(lib "htdp-advanced-reader.ss" "lang")((modname fury_breakout_2020) (read-case-sensitive #t) (teachpacks ()) (htdp-settings #(#t constructor repeating-decimal #t #t none #f () #f)))
 (require 2htdp/image)
 (require 2htdp/universe)
 (require 2htdp/batch-io)
 (require rsound)
 
-;;; A clone of Super Breakout (Arcade, Atari, 1978)
+;;; A remake of Super Breakout (1978 Atari)
+
+;; Warning: make sure the volume is not set too high;
+;;          the tests in this program will play a sequence
+;;          of sounds for a few seconds once run
 
 ;;;;;;;;;;;;;;
 ;;;
@@ -159,7 +163,7 @@
 
 ; WAV file path of the tick sound
 ; (each tick represents one point of a brick's score point value)
-(define RS-TICK-PATH "resources/sounds/brick-1point.wav")
+(define RS-TICK-PATH "resources/sounds/brick.wav")
 ; WAV file path of the boop sound
 (define RS-BOOP-PATH "resources/sounds/lose.wav")
 ; WAV file path of the blip sound
@@ -171,7 +175,7 @@
 (define RS-TICK-STREAM (make-pstream))
 
 ; path of CSV file containing a 8x8 monochrome bitmap font
-(define FONT-PATH "resources/fonts/Super_Breakout_Font_8x8.csv")
+(define FONT-PATH "resources/fonts/super_breakout_font_8x8.csv")
 
 ;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -450,6 +454,12 @@
 ; Nothing
 (define NOTHING (make-nothing))
 
+; Hitbox
+(define HITBOX-0 (make-hitbox 4 93 439 -4535))
+(define HITBOX-1 (make-hitbox -3 34 65 -234))
+(define HITBOX-2 (make-hitbox 4 3425 3 5698))
+(define HITBOX-3 (make-hitbox 324 -23 35 -45))
+
 ; Paddle
 ; paddles in each breakout game
 (define CAVITY-PADDLE      (make-paddle 50 CAVITY-PADDLE-ROW PADDLE-MAX-WIDTH))
@@ -469,6 +479,11 @@
                 (make-paddle (* CHAR-BLK-LENGTH (+ (* 2 n) 1))
                              CAVITY-PADDLE-ROW
                              BRICK-WIDTH))))
+(define LOP-0 ATTRACT-PADDLES)
+
+; Brick
+(define CAVITY-BRICK-0 (make-brick 1 7))
+(define CAVITY-BRICK-1 (make-brick 1 8))
 
 ; List<Brick>
 ; bricks that appear once in a while during a progressive game
@@ -498,10 +513,10 @@
 (define CAVITY-BRICKS-0
   (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 5)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 6)))
-          (list (make-brick 1 7) (make-brick 3 7) (make-brick 5 7)
+          (list CAVITY-BRICK-0    (make-brick 3 7)  (make-brick 5 7)
                 (make-brick 11 7) (make-brick 13 7) (make-brick 15 7)
                 (make-brick 21 7) (make-brick 23 7) (make-brick 25 7))
-          (list (make-brick 1 8) (make-brick 3 8) (make-brick 5 8)
+          (list CAVITY-BRICK-1    (make-brick 3 8)  (make-brick 5 8)
                 (make-brick 11 8) (make-brick 13 8) (make-brick 15 8)
                 (make-brick 21 8) (make-brick 23 8) (make-brick 25 8))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 9)))
@@ -531,30 +546,100 @@
 (define CAVITY-BALLS-0 (list CAVITY-BALL-0 CAVITY-BALL-1))
 (define DOUBLE-BALLS-0 '())
 (define PROGRESSIVE-BALLS-0 '())
-
 (define LOBA-0
   (list (make-ball (+ BALL-MIN-X 55) (/ PF-HEIGHT 2) BALL-MIN-SPEED
                    BALL-DIR-RDN-2 NOTHING NOTHING 0 1 #false)))
-(define LOP-0 ATTRACT-PADDLES)
+
+; more of Ball
+(define BALL0 (first LOBA-0))
+(define BALL1
+  (make-ball (* CHAR-BLK-LENGTH 7.5)
+             (* CHAR-BLK-LENGTH 8.5)
+             BALL-MIN-SPEED
+             BALL-DIR-RDN-2
+             BACKWALL BACKWALL
+             0 0 #false))
+(define BALL2
+  (make-ball (* CHAR-BLK-LENGTH 7.5)
+             (* CHAR-BLK-LENGTH 8.5)
+             BALL-MIN-SPEED
+             BALL-DIR-RDN-2
+             BACKWALL BACKWALL
+             PADDLE-HITS-PER-GAME 0 #false))
+(define BALL3
+  (make-ball (* CHAR-BLK-LENGTH 7.5)
+             (* CHAR-BLK-LENGTH 8.5)
+             BALL-MIN-SPEED
+             BALL-DIR-RDN-2
+             BACKWALL BACKWALL
+             (+ 5 PADDLE-HITS-PER-GAME) 0 #false))
+(define RIGHT-SIDEWALL-BALL
+  (make-ball BALL-MIN-X
+             (add1 BALL-MAX-Y)
+             0
+             (- pi BALL-DIR-RDN-0)
+             BACKWALL BACKWALL
+             0 0 #false))
+(define LEFT-SIDEWALL-BALL
+  (make-ball (/ PF-WIDTH 2)
+             (sub1 BALL-MIN-Y)
+             0
+             BALL-DIR-RDN-0
+             BACKWALL BACKWALL
+             0 -1 #false))
+(define NOTHING-BALL
+  (make-ball (/ PF-WIDTH 2)
+             (/ PF-HEIGHT 2)
+             0
+             BALL-DIR-RDN-0
+             (make-paddle 0 0 1) BACKWALL
+             0 -1 #false))
+(define BRICK-BALL
+  (make-ball (add1 BALL-MAX-X)
+             (* 4 CHAR-BLK-LENGTH)
+             0
+             BALL-DIR-RDN-0
+             BACKWALL BACKWALL
+             0 0 #false))
+(define PADDLE-BALL
+  (make-ball 150
+             (* 5 CHAR-BLK-LENGTH)
+             0
+             BALL-DIR-RDN-0
+             (make-brick 1 1) BACKWALL
+             0 -1 #true))
+
+; NonnegativeNumber
 (define SERVE-NUM-0 1)
+
+; Player
 (define P1-0 (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0))
 (define P2-0 (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0))
+
+; HighScores
 (define HIGH-SCORES-0 (make-high-scores 0 0 0))
+
+; NonnegativeInteger
 (define CREDIT-COUNT-0 0)
-(define CTRL-PANEL-0 (make-ctrl-panel #true (/ PF-WIDTH 2) "cavity"))
-(define MODE-0 (make-attract #true "cavity"))
 (define NEXT-SILENT-FRAME-0 0)
 
-(define BRKT0 (make-breakout LOBA-0
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             MODE-0
-                             NEXT-SILENT-FRAME-0))
+; ControlPanel
+(define CTRL-PANEL-0 (make-ctrl-panel #true (/ PF-WIDTH 2) "cavity"))
+
+; Attract
+(define MODE-0 (make-attract #true "cavity"))
+(define MODE-6 (make-attract #false "double"))
+(define MODE-7 (make-attract #true "progressive"))
+
+; ReadyToPlay
+(define MODE-1 (make-ready-to-play))
+
+; PlayMode
+(define MODE-3 (make-play-mode "cavity" #true #false))
+(define MODE-4 (make-play-mode "double" #true #false))
+(define MODE-5 (make-play-mode "progressive" #true #true))
+
+;;;;;;;;;;;;;;;;;;;; HELPERS FOR CREATING BREAKOUTS ;;;;;;;;;;;;;;;;;;;;
 
 ; col->x : NonnegativeInteger -> Number
 ; convert column number 'col' into a horizontal position in pixels
@@ -566,27 +651,39 @@
 (define (row->y row)
   (* row CHAR-BLK-LENGTH))
 
-(define MODE-1 (make-ready-to-play ))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; Breakout
+(define BRKT0 (make-breakout LOBA-0
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             MODE-0
+                             NEXT-SILENT-FRAME-0))
 (define BRKT1 (make-breakout '()
-                            CAVITY-PADDLES-0
-                            SERVE-NUM-0
-                            P1-0
-                            P2-0
-                            HIGH-SCORES-0
-                            CREDIT-COUNT-0
-                            CTRL-PANEL-0
-                            (make-play-mode "cavity" #false #false)
-                            NEXT-SILENT-FRAME-0))
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-play-mode "cavity" #false #false)
+                             NEXT-SILENT-FRAME-0))
 (define BRKT2 (make-breakout '()
-                            CAVITY-PADDLES-0
-                            SERVE-NUM-0
-                            P1-0
-                            P2-0
-                            HIGH-SCORES-0
-                            CREDIT-COUNT-0
-                            CTRL-PANEL-0
-                            MODE-0
-                            NEXT-SILENT-FRAME-0))
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             MODE-0
+                             NEXT-SILENT-FRAME-0))
 (define BRKT3 (make-breakout (list (make-ball (col->x 7) (row->y 16) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false))
                              CAVITY-PADDLES-0
                              SERVE-NUM-0
@@ -609,35 +706,422 @@
                              (make-play-mode "cavity" #false #false)
                              NEXT-SILENT-FRAME-0))
 (define BRKT5 (make-breakout '()
-                            CAVITY-PADDLES-0
-                            SERVE-NUM-0
-                            P1-0
-                            P2-0
-                            HIGH-SCORES-0
-                            CREDIT-COUNT-0
-                            (make-ctrl-panel #false (/ PF-WIDTH 2) "cavity")
-                            MODE-1
-                            NEXT-SILENT-FRAME-0))
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             (make-ctrl-panel #false (/ PF-WIDTH 2) "cavity")
+                             MODE-1
+                             NEXT-SILENT-FRAME-0))
 (define BRKT6 (make-breakout '()
-                            CAVITY-PADDLES-0
-                            SERVE-NUM-0
-                            P1-0
-                            (make-player 30 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
-                            (make-high-scores 100 0 0)
-                            CREDIT-COUNT-0
-                            (make-ctrl-panel #false (/ PF-WIDTH 2) "cavity")
-                            MODE-1
-                            NEXT-SILENT-FRAME-0))
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             (make-player 30 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
+                             (make-high-scores 100 0 0)
+                             CREDIT-COUNT-0
+                             (make-ctrl-panel #false (/ PF-WIDTH 2) "cavity")
+                             MODE-1
+                             NEXT-SILENT-FRAME-0))
 (define BRKT7 (make-breakout '()
-                            CAVITY-PADDLES-0
-                            SERVE-NUM-0
-                            P1-0
-                            P2-0
-                            HIGH-SCORES-0
-                            2
-                            (make-ctrl-panel #false (/ PF-WIDTH 2) "cavity")
-                            MODE-1
-                            NEXT-SILENT-FRAME-0))
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             2
+                             (make-ctrl-panel #false (/ PF-WIDTH 2) "cavity")
+                             MODE-1
+                             NEXT-SILENT-FRAME-0))
+(define BRKT8 (make-breakout '()
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-attract #false "cavity")
+                             NEXT-SILENT-FRAME-0))
+(define BRKT9 (make-breakout '()
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-attract #true "cavity")
+                             NEXT-SILENT-FRAME-0))
+(define BRKT10 (make-breakout '()
+                              LOP-0
+                              SERVE-NUM-0
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              (make-play-mode "cavity" #false #false)
+                              NEXT-SILENT-FRAME-0))
+(define BRKT11 (make-breakout '()
+                              LOP-0
+                              SERVE-NUM-0
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              (make-play-mode "cavity" #false #true)
+                              (+ 100 (pstream-current-frame RS-TICK-STREAM))))
+(define BRKT12 (make-breakout '()
+                              LOP-0
+                              SERVE-NUM-0
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              (make-ready-to-play)
+                              NEXT-SILENT-FRAME-0))
+(define BRKT13 (make-breakout (list BALL0 BALL1)
+                              LOP-0
+                              SERVE-NUM-0
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              MODE-0
+                              NEXT-SILENT-FRAME-0))
+(define BRKT14 (make-breakout (list BALL2)
+                              LOP-0
+                              SERVE-NUM-0
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              MODE-0
+                              NEXT-SILENT-FRAME-0))
+(define BRKT15 (make-breakout (list BALL3)
+                              LOP-0
+                              SERVE-NUM-0
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              MODE-6
+                              NEXT-SILENT-FRAME-0))
+(define BRKT16 (make-breakout (list BALL3)
+                              LOP-0
+                              (+ 0.5 SERVE-NUM-0)
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              MODE-7
+                              NEXT-SILENT-FRAME-0))
+(define BRKT17 (make-breakout
+                (list
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (add1 CAVITY-BPV-0-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            BACKWALL
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-0-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            BACKWALL
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-1-ROW))
+                            (ball-speed BRICK-BALL)
+                            (- pi BALL-DIR-RDN-0)
+                            (make-paddle 0 0 30)
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-2-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            (make-brick 0 100)
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (add1 PROGRESSIVE-BPV-0-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            CAVITY-BRICK-0
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (sub1 PROGRESSIVE-BPV-2-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            CAVITY-BRICK-1
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 RIGHT-SIDEWALL-BALL
+                 LEFT-SIDEWALL-BALL
+                 (make-ball (ball-cx PADDLE-BALL)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-0)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (ball-cx PADDLE-BALL)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-1)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (+ (ball-cx PADDLE-BALL) 30)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-2)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (+ (ball-cx PADDLE-BALL) 20)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-2)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (ball-cx PADDLE-BALL)
+                            (ball-cy PADDLE-BALL)
+                            BALL-MAX-SPEED
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-3)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (+ (ball-cx PADDLE-BALL) 50)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            PADDLE-HITS-BALL-PROGRESSION-3
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 NOTHING-BALL)
+                (list (make-paddle 150 5 50))
+                (+ 0.5 SERVE-NUM-0)
+                P1-0
+                (make-player CAVITY-BONUS
+                             (list
+                              (make-ball (ball-cx BRICK-BALL)
+                                         (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-2-ROW))
+                                         (ball-speed BRICK-BALL)
+                                         BALL-DIR-RDN-0
+                                         (make-brick 0 100)
+                                         (ball-tick-vobject BRICK-BALL)
+                                         (ball-paddle-hit-count BRICK-BALL)
+                                         (ball-serve-delay BRICK-BALL)
+                                         (ball-has-child? BRICK-BALL))
+                              PADDLE-BALL)
+                             (list
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-2-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-2-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-1-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-0-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (add1 CAVITY-BPV-0-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (add1 PROGRESSIVE-BPV-0-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (sub1 PROGRESSIVE-BPV-2-ROW)))
+                             (player-progression-count P2-0))
+                HIGH-SCORES-0
+                CREDIT-COUNT-0
+                CTRL-PANEL-0
+                (make-play-mode "progressive" #true #false)
+                NEXT-SILENT-FRAME-0))
+(define BRKT18 (make-breakout
+                (list (make-ball BALL-MAX-X
+                                 (* 4 CHAR-BLK-LENGTH)
+                                 0
+                                 BALL-DIR-RDN-0
+                                 (make-brick 0 100) BACKWALL
+                                 0 0 #false))
+                (list (make-paddle 150 5 PADDLE-MAX-WIDTH))
+                SERVE-NUM-0
+                (make-player (player-score P1-0)
+                             (player-loba P1-0)
+                             (list (make-brick (/ BALL-MAX-X CHAR-BLK-LENGTH) 4))
+                             (player-progression-count P1-0))
+                P2-0
+                HIGH-SCORES-0
+                CREDIT-COUNT-0
+                (make-ctrl-panel #false 0 "double")
+                (make-ready-to-play)
+                NEXT-SILENT-FRAME-0))
+(define BRKT19 (make-breakout
+                (breakout-loba BRKT18)
+                (breakout-lop BRKT18)
+                (breakout-serve-num BRKT18)
+                (breakout-p1 BRKT18)
+                (breakout-p2 BRKT18)
+                (breakout-high-scores BRKT18)
+                (breakout-credit-count BRKT18)
+                (make-ctrl-panel #false 0 "progressive")
+                (breakout-mode BRKT18)
+                (breakout-next-silent-frame BRKT18)))
+(define BRKT20 (make-breakout
+                (list
+                 (make-ball
+                  BALL-MIN-X
+                  (add1 BALL-MAX-Y)
+                  0
+                  (- pi BALL-DIR-RDN-0)
+                  BACKWALL NOTHING
+                  0 0 #false))
+                (breakout-lop BRKT18)
+                (breakout-serve-num BRKT18)
+                (breakout-p1 BRKT18)
+                (breakout-p2 BRKT18)
+                (breakout-high-scores BRKT18)
+                (breakout-credit-count BRKT18)
+                (breakout-ctrl-panel BRKT18)
+                (breakout-mode BRKT18)
+                (breakout-next-silent-frame BRKT18)))
+(define BRKT21 (make-breakout
+                (breakout-loba BRKT20)
+                (breakout-lop BRKT20)
+                (breakout-serve-num BRKT20)
+                (breakout-p1 BRKT20)
+                (breakout-p2 BRKT20)
+                (breakout-high-scores BRKT20)
+                (breakout-credit-count BRKT20)
+                (breakout-ctrl-panel BRKT20)
+                (make-play-mode "cavity" #true #true)
+                (breakout-next-silent-frame BRKT20)))
+(define BRKT22 (make-breakout
+                (breakout-loba BRKT17)
+                (breakout-lop BRKT17)
+                (+ GAME-LENGTH (breakout-serve-num BRKT17))
+                (breakout-p1 BRKT17)
+                (breakout-p2 BRKT17)
+                (breakout-high-scores BRKT17)
+                (- (breakout-credit-count BRKT17) BONUS-CREDITS)
+                (breakout-ctrl-panel BRKT17)
+                MODE-3
+                (breakout-next-silent-frame BRKT17)))
+(define BRKT23 (make-breakout
+                '()
+                (breakout-lop BRKT17)
+                (+ GAME-LENGTH (breakout-serve-num BRKT17))
+                (breakout-p1 BRKT17)
+                (breakout-p2 BRKT17)
+                (breakout-high-scores BRKT17)
+                (breakout-credit-count BRKT17)
+                (make-ctrl-panel #false 100 "progressive")
+                (make-play-mode "double" #true #true)
+                (breakout-next-silent-frame BRKT17)))
+(define BRKT24 (make-breakout
+                '()
+                (list (make-paddle (ball-cx PADDLE-BALL) (* 5 CHAR-BLK-LENGTH) 100))
+                (+ GAME-LENGTH (breakout-serve-num BRKT17))
+                (breakout-p1 BRKT17)
+                (breakout-p2 BRKT17)
+                (breakout-high-scores BRKT17)
+                (+ (breakout-credit-count BRKT17) BONUS-CREDITS)
+                (make-ctrl-panel #true 100 "progressive")
+                MODE-5
+                (breakout-next-silent-frame BRKT17)))
+(define BRKT25 (make-breakout
+                (list (make-ball (ball-cx PADDLE-BALL)
+                                 (ball-cy PADDLE-BALL)
+                                 (ball-speed PADDLE-BALL)
+                                 (ball-dir PADDLE-BALL)
+                                 (ball-rico-vobject PADDLE-BALL)
+                                 (ball-tick-vobject PADDLE-BALL)
+                                 PADDLE-HITS-BRICK-PROGRESSION-2
+                                 (ball-serve-delay PADDLE-BALL)
+                                 (ball-has-child? PADDLE-BALL)))
+                (breakout-lop BRKT17)
+                1
+                (make-player (player-score (breakout-p1 BRKT17))
+                             (player-loba (breakout-p1 BRKT17))
+                             (player-lobr (breakout-p1 BRKT17))
+                             PROGRESSIVE-BRICK-WALL-HEIGHT)
+                (breakout-p2 BRKT17)
+                (breakout-high-scores BRKT17)
+                (breakout-credit-count BRKT17)
+                (make-ctrl-panel #true 100 "progressive")
+                (make-play-mode "progressive" #true #false)
+                (breakout-next-silent-frame BRKT17)))
+(define BRKT26 (make-breakout
+                (list (make-ball (ball-cx PADDLE-BALL)
+                                 (ball-cy PADDLE-BALL)
+                                 (ball-speed PADDLE-BALL)
+                                 (ball-dir PADDLE-BALL)
+                                 (ball-rico-vobject PADDLE-BALL)
+                                 (ball-tick-vobject PADDLE-BALL)
+                                 (ball-paddle-hit-count PADDLE-BALL)
+                                 (ball-serve-delay PADDLE-BALL)
+                                 #false))
+                (breakout-lop BRKT17)
+                1
+                (make-player 0 '() '() 0)
+                (breakout-p2 BRKT17)
+                (breakout-high-scores BRKT17)
+                (breakout-credit-count BRKT17)
+                (make-ctrl-panel #true 100 "progressive")
+                MODE-3
+                (breakout-next-silent-frame BRKT17)))
+(define BRKT27 (make-breakout
+                (breakout-loba BRKT26)
+                (breakout-lop BRKT26)
+                (breakout-serve-num BRKT26)
+                (breakout-p1 BRKT26)
+                (breakout-p2 BRKT26)
+                (breakout-high-scores BRKT26)
+                (breakout-credit-count BRKT26)
+                (breakout-ctrl-panel BRKT26)
+                MODE-4
+                (breakout-next-silent-frame BRKT26)))
+(define BRKT28 (make-breakout
+                (breakout-loba BRKT17)
+                (breakout-lop BRKT17)
+                (breakout-serve-num BRKT17)
+                (breakout-p1 BRKT17)
+                (breakout-p2 BRKT17)
+                (breakout-high-scores BRKT17)
+                (breakout-credit-count BRKT17)
+                (breakout-ctrl-panel BRKT17)
+                MODE-4
+                (breakout-next-silent-frame BRKT17)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -831,10 +1315,9 @@
           (define new-next-silent-frame (+ next-noise-frame
                                            (* RS-TICK-LENGTH tick-score))))
     (cond
-      [(and (pstream? (pstream-set-volume! RS-TICK-STREAM 1))
-            (positive? tick-score)
+      [(and (positive? tick-score)
             (play-mode? (breakout-mode a-brkt)))
-       (andqueue RS-TICK-STREAM
+       (andqueue (pstream-set-volume! RS-TICK-STREAM 1)
                  (rs-append* (make-list tick-score RS-TICK))
                  next-noise-frame
                  (make-breakout (breakout-loba a-brkt)
@@ -855,6 +1338,11 @@
 ; reflect Angle 'a' horizontally
 (define (reflect-h a)
   (* (sgn a) (- pi (abs a))))
+
+; reflect-v : Angle -> Angle
+; reflect Angle 'a' vertically
+(define (reflect-v a)
+  (- a))
 
 ; move : Ball Breakout -> Ball
 ; move 'a-ball' for one clock tick considering the sidewalls only
@@ -1302,344 +1790,14 @@
     (cond
       [(attract? a-mode)
        (update-attract new-brkt)]
+      [(ready-to-play? a-mode)
+       (update-ready-to-play new-brkt)]
       [(play-mode? a-mode)
-       (update-play new-brkt)]
-      [else new-brkt])))
+       (update-play new-brkt)])))
 
-
-; Data Examples
-(define BRKT8 (make-breakout '()
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             (make-attract #false "cavity")
-                             NEXT-SILENT-FRAME-0))
-(define BRKT9 (make-breakout '()
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             (make-attract #true "cavity")
-                             NEXT-SILENT-FRAME-0))
-(define BRKT10 (make-breakout '()
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             (make-play-mode "cavity" #false #false)
-                             NEXT-SILENT-FRAME-0))
-(define BRKT11 (make-breakout '()
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             (make-play-mode "cavity" #false #true)
-                             (+ 100 (pstream-current-frame RS-TICK-STREAM))))
-(define BRKT12 (make-breakout '()
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             (make-ready-to-play)
-                             NEXT-SILENT-FRAME-0))
-
-(define BALL0 (first LOBA-0))
-(define BALL1 (make-ball (* CHAR-BLK-LENGTH 7.5)
-                         (* CHAR-BLK-LENGTH 8.5)
-                         BALL-MIN-SPEED
-                         BALL-DIR-RDN-2
-                         BACKWALL BACKWALL
-                         0 0 #false))
-(define BALL2 (make-ball (* CHAR-BLK-LENGTH 7.5)
-                         (* CHAR-BLK-LENGTH 8.5)
-                         BALL-MIN-SPEED
-                         BALL-DIR-RDN-2
-                         BACKWALL BACKWALL
-                         PADDLE-HITS-PER-GAME 0 #false))
-(define BALL3 (make-ball (* CHAR-BLK-LENGTH 7.5)
-                         (* CHAR-BLK-LENGTH 8.5)
-                         BALL-MIN-SPEED
-                         BALL-DIR-RDN-2
-                         BACKWALL BACKWALL
-                         (+ 5 PADDLE-HITS-PER-GAME) 0 #false))
-
-(define BRKT13 (make-breakout (list BALL0 BALL1)
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             MODE-0
-                             NEXT-SILENT-FRAME-0))
-(define BRKT14 (make-breakout (list BALL2)
-                             LOP-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             MODE-0
-                             NEXT-SILENT-FRAME-0))
-(define BRKT15 (make-breakout (list BALL3)
-                              LOP-0
-                              SERVE-NUM-0
-                              P1-0
-                              P2-0
-                              HIGH-SCORES-0
-                              CREDIT-COUNT-0
-                              CTRL-PANEL-0
-                              (make-attract #false "double")
-                              NEXT-SILENT-FRAME-0))
-(define BRKT16 (make-breakout (list BALL3)
-                              LOP-0
-                              (+ 0.5 SERVE-NUM-0)
-                              P1-0
-                              P2-0
-                              HIGH-SCORES-0
-                              CREDIT-COUNT-0
-                              CTRL-PANEL-0
-                              (make-attract #true "progressive")
-                              NEXT-SILENT-FRAME-0))
-
-(define RIGHT-SIDEWALL-BALL (make-ball BALL-MIN-X
-                                       (add1 BALL-MAX-Y)
-                                       0
-                                       (- pi BALL-DIR-RDN-0)
-                                       BACKWALL BACKWALL
-                                       0 0 #false))
-(define LEFT-SIDEWALL-BALL (make-ball (/ PF-WIDTH 2)
-                                      (sub1 BALL-MIN-Y)
-                                      0
-                                      BALL-DIR-RDN-0
-                                      BACKWALL BACKWALL
-                                      0 -1 #false))
-(define NOTHING-BALL (make-ball (/ PF-WIDTH 2)
-                                (/ PF-HEIGHT 2)
-                                0
-                                BALL-DIR-RDN-0
-                                (make-paddle 0 0 1) BACKWALL
-                                0 -1 #false))
-(define BRICK-BALL (make-ball (add1 BALL-MAX-X)
-                              (* 4 CHAR-BLK-LENGTH)
-                              0
-                              BALL-DIR-RDN-0
-                              BACKWALL BACKWALL
-                              0 0 #false))
-(define PADDLE-BALL (make-ball 150
-                               (* 5 CHAR-BLK-LENGTH)
-                               0
-                               BALL-DIR-RDN-0
-                               (make-brick 1 1) BACKWALL
-                               0 -1 #true))
-(define BRKT17 (make-breakout
-                (list
-                 (make-ball (ball-cx BRICK-BALL)
-                            (* CHAR-BLK-LENGTH (add1 CAVITY-BPV-0-ROW))
-                            (ball-speed BRICK-BALL)
-                            BALL-DIR-RDN-0
-                            BACKWALL
-                            (ball-tick-vobject BRICK-BALL)
-                            (ball-paddle-hit-count BRICK-BALL)
-                            (ball-serve-delay BRICK-BALL)
-                            (ball-has-child? BRICK-BALL))
-                 (make-ball (ball-cx BRICK-BALL)
-                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-0-ROW))
-                            (ball-speed BRICK-BALL)
-                            BALL-DIR-RDN-0
-                            BACKWALL
-                            (ball-tick-vobject BRICK-BALL)
-                            (ball-paddle-hit-count BRICK-BALL)
-                            (ball-serve-delay BRICK-BALL)
-                            (ball-has-child? BRICK-BALL))
-                 (make-ball (ball-cx BRICK-BALL)
-                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-1-ROW))
-                            (ball-speed BRICK-BALL)
-                            (- pi BALL-DIR-RDN-0)
-                            (make-paddle 0 0 30)
-                            (ball-tick-vobject BRICK-BALL)
-                            (ball-paddle-hit-count BRICK-BALL)
-                            (ball-serve-delay BRICK-BALL)
-                            (ball-has-child? BRICK-BALL))
-                 (make-ball (ball-cx BRICK-BALL)
-                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-2-ROW))
-                            (ball-speed BRICK-BALL)
-                            BALL-DIR-RDN-0
-                            (make-brick 0 100)
-                            (ball-tick-vobject BRICK-BALL)
-                            (ball-paddle-hit-count BRICK-BALL)
-                            (ball-serve-delay BRICK-BALL)
-                            (ball-has-child? BRICK-BALL))
-                 RIGHT-SIDEWALL-BALL
-                 LEFT-SIDEWALL-BALL
-                 (make-ball (ball-cx PADDLE-BALL)
-                            (ball-cy PADDLE-BALL)
-                            (ball-speed PADDLE-BALL)
-                            (ball-dir PADDLE-BALL)
-                            (ball-rico-vobject PADDLE-BALL)
-                            (ball-tick-vobject PADDLE-BALL)
-                            (sub1 PADDLE-HITS-BALL-PROGRESSION-0)
-                            (ball-serve-delay PADDLE-BALL)
-                            (ball-has-child? PADDLE-BALL))
-                 (make-ball (ball-cx PADDLE-BALL)
-                            (ball-cy PADDLE-BALL)
-                            (ball-speed PADDLE-BALL)
-                            (ball-dir PADDLE-BALL)
-                            (ball-rico-vobject PADDLE-BALL)
-                            (ball-tick-vobject PADDLE-BALL)
-                            (sub1 PADDLE-HITS-BALL-PROGRESSION-1)
-                            (ball-serve-delay PADDLE-BALL)
-                            (ball-has-child? PADDLE-BALL))
-                 (make-ball (+ (ball-cx PADDLE-BALL) 30)
-                            (ball-cy PADDLE-BALL)
-                            (ball-speed PADDLE-BALL)
-                            (ball-dir PADDLE-BALL)
-                            (ball-rico-vobject PADDLE-BALL)
-                            (ball-tick-vobject PADDLE-BALL)
-                            (sub1 PADDLE-HITS-BALL-PROGRESSION-2)
-                            (ball-serve-delay PADDLE-BALL)
-                            (ball-has-child? PADDLE-BALL))
-                 (make-ball (+ (ball-cx PADDLE-BALL) 20)
-                            (ball-cy PADDLE-BALL)
-                            (ball-speed PADDLE-BALL)
-                            (ball-dir PADDLE-BALL)
-                            (ball-rico-vobject PADDLE-BALL)
-                            (ball-tick-vobject PADDLE-BALL)
-                            (sub1 PADDLE-HITS-BALL-PROGRESSION-2)
-                            (ball-serve-delay PADDLE-BALL)
-                            (ball-has-child? PADDLE-BALL))
-                 (make-ball (ball-cx PADDLE-BALL)
-                            (ball-cy PADDLE-BALL)
-                            BALL-MAX-SPEED
-                            (ball-dir PADDLE-BALL)
-                            (ball-rico-vobject PADDLE-BALL)
-                            (ball-tick-vobject PADDLE-BALL)
-                            (sub1 PADDLE-HITS-BALL-PROGRESSION-3)
-                            (ball-serve-delay PADDLE-BALL)
-                            (ball-has-child? PADDLE-BALL))
-                 (make-ball (+ (ball-cx PADDLE-BALL) 50)
-                            (ball-cy PADDLE-BALL)
-                            (ball-speed PADDLE-BALL)
-                            (ball-dir PADDLE-BALL)
-                            (ball-rico-vobject PADDLE-BALL)
-                            (ball-tick-vobject PADDLE-BALL)
-                            PADDLE-HITS-BALL-PROGRESSION-3
-                            (ball-serve-delay PADDLE-BALL)
-                            (ball-has-child? PADDLE-BALL))
-                 NOTHING-BALL)
-                (list (make-paddle 150 5 50))
-                (+ 0.5 SERVE-NUM-0)
-                P1-0
-                (make-player CAVITY-BONUS
-                             (list
-                              (make-ball (ball-cx BRICK-BALL)
-                                         (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-2-ROW))
-                                         (ball-speed BRICK-BALL)
-                                         BALL-DIR-RDN-0
-                                         (make-brick 0 100)
-                                         (ball-tick-vobject BRICK-BALL)
-                                         (ball-paddle-hit-count BRICK-BALL)
-                                         (ball-serve-delay BRICK-BALL)
-                                         (ball-has-child? BRICK-BALL))
-                              PADDLE-BALL)
-                             (list
-                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-2-ROW))
-                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-2-ROW))
-                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-1-ROW))
-                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-0-ROW))
-                              (make-brick (- PF-COL-COUNT 2) (add1 CAVITY-BPV-0-ROW)))
-                             (player-progression-count P2-0))
-                HIGH-SCORES-0
-                CREDIT-COUNT-0
-                CTRL-PANEL-0
-                (make-play-mode "cavity" #true #false)
-                NEXT-SILENT-FRAME-0))
-
-(define BRKT18 (make-breakout
-                (list (make-ball BALL-MAX-X
-                            (* 4 CHAR-BLK-LENGTH)
-                            0
-                            BALL-DIR-RDN-0
-                            (make-brick 0 100) BACKWALL
-                            0 0 #false))
-                (list (make-paddle 150 5 PADDLE-MAX-WIDTH))
-                SERVE-NUM-0
-                (make-player (player-score P1-0)
-                             (player-loba P1-0)
-                             (list (make-brick (/ BALL-MAX-X CHAR-BLK-LENGTH) 4))
-                             (player-progression-count P1-0))
-                P2-0
-                HIGH-SCORES-0
-                CREDIT-COUNT-0
-                (make-ctrl-panel #false 0 "double")
-                (make-ready-to-play)
-                NEXT-SILENT-FRAME-0))
-
-(define BRKT19 (make-breakout
-                (breakout-loba BRKT18)
-                (breakout-lop BRKT18)
-                (breakout-serve-num BRKT18)
-                (breakout-p1 BRKT18)
-                (breakout-p2 BRKT18)
-                (breakout-high-scores BRKT18)
-                (breakout-credit-count BRKT18)
-                (make-ctrl-panel #false 0 "progressive")
-                (breakout-mode BRKT18)
-                (breakout-next-silent-frame BRKT18)))
-
-(define BRKT20 (make-breakout
-                (list
-                 (make-ball
-                  BALL-MIN-X
-                  (add1 BALL-MAX-Y)
-                  0
-                  (- pi BALL-DIR-RDN-0)
-                  BACKWALL NOTHING
-                  0 0 #false))
-                (breakout-lop BRKT18)
-                (breakout-serve-num BRKT18)
-                (breakout-p1 BRKT18)
-                (breakout-p2 BRKT18)
-                (breakout-high-scores BRKT18)
-                (breakout-credit-count BRKT18)
-                (breakout-ctrl-panel BRKT18)
-                (breakout-mode BRKT18)
-                (breakout-next-silent-frame BRKT18)))
-
-(define BRKT21 (make-breakout
-                (breakout-loba BRKT20)
-                (breakout-lop BRKT20)
-                (breakout-serve-num BRKT20)
-                (breakout-p1 BRKT20)
-                (breakout-p2 BRKT20)
-                (breakout-high-scores BRKT20)
-                (breakout-credit-count BRKT20)
-                (breakout-ctrl-panel BRKT20)
-                (make-play-mode "cavity" #true #true)
-                (breakout-next-silent-frame BRKT20)))
-  
-; empty list of breakout balls and attract mode
+;; Examples
 (check-expect (update BRKT8) BRKT8)
 (check-expect (update BRKT9) BRKT9)
-; empty list of breakout balls and play mode without ended serve and/or not silent
 (check-expect (update BRKT10) BRKT10)
 (check-expect (update BRKT11)
               (make-breakout (breakout-loba BRKT11)
@@ -1654,9 +1812,7 @@
                                              (play-mode-has-one-serve? (breakout-mode BRKT11))
                                              #false)
                              (breakout-next-silent-frame BRKT11)))
-; empty list of breakout balls and ready-to-play mode
 (check-expect (update BRKT12) BRKT12)
-; at least one breakout ball with serve delay
 (check-within (update BRKT13)
               (make-breakout (list (make-ball (ball-cx BALL0)
                                               (ball-cy BALL0)
@@ -1678,7 +1834,6 @@
                              (breakout-mode BRKT0)
                              (breakout-next-silent-frame BRKT0))
               0.001)
-; balls that hit the paddle exactly or more than 'PADDLE-HITS-PER-GAME' times in attract mode
 (check-satisfied (update BRKT14)
                  (lambda (a-brkt)
                    (and (cons? (breakout-loba a-brkt))
@@ -1697,49 +1852,82 @@
                         (attract? (breakout-mode a-brkt))
                         (attract-v1? (breakout-mode a-brkt))
                         (string=? "cavity" (attract-game (breakout-mode a-brkt))))))
-(check-within (update BRKT17) BRKT17 0.01)
-(check-within (update BRKT18) BRKT18 0.01)
-(check-within (update BRKT19) BRKT19 0.01)
-(check-within (update BRKT20) BRKT20 0.01)
-(check-within (update BRKT21) BRKT21 0.01)
-
-#|
-(define BRKT3 (make-breakout (list (make-ball (col->x 7) (row->y 16) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false))
-                             CAVITY-PADDLES-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             (make-play-mode "cavity" #false #false)
-                             NEXT-SILENT-FRAME-0))
-(define BRKT4 (make-breakout (list (make-ball (col->x 7) (row->y 16) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false)
-                                   (make-ball (col->x 10) (row->y 16) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false))
-                             CAVITY-PADDLES-0
-                             SERVE-NUM-0
-                             P1-0
-                             P2-0
-                             HIGH-SCORES-0
-                             CREDIT-COUNT-0
-                             CTRL-PANEL-0
-                             (make-play-mode "cavity" #false #false)
-                             NEXT-SILENT-FRAME-0))
-
-
-; Examples
-(check-within (update BRKT3) (make-breakout (list (make-ball 176.2495791 392.2495791 BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false))
-                                            CAVITY-PADDLES-0
-                                            SERVE-NUM-0
-                                            P1-0
-                                            P2-0
-                                            HIGH-SCORES-0
-                                            CREDIT-COUNT-0
-                                            CTRL-PANEL-0
-                                            (make-play-mode "cavity" #false #false)
-                                            NEXT-SILENT-FRAME-0) 0.0001)
-(check-within (update BRKT4) (update-balls BRKT4) 0.0001)
-|#
+(check-satisfied (update BRKT17)
+                 (lambda (a-brkt)
+                   (and (positive? (breakout-next-silent-frame a-brkt))
+                        (positive? (high-scores-progressive (breakout-high-scores a-brkt)))
+                        (equal? (length (player-loba (breakout-p2 a-brkt))) 1)
+                        (cons? (player-lobr (breakout-p2 a-brkt)))
+                        (equal? (length (breakout-loba a-brkt)) 17))))
+(check-satisfied (update BRKT18)
+                 (lambda (a-brkt)
+                   (and (not (equal? (first (breakout-loba a-brkt))
+                                     (first (breakout-loba BRKT18))))
+                        (not (equal? (player-loba (breakout-p1 a-brkt))
+                                     (player-loba (breakout-p1 BRKT18)))))))
+(check-satisfied (update BRKT19)
+                 (lambda (a-brkt)
+                   (and (not (equal? (first (breakout-loba a-brkt))
+                                     (first (breakout-loba BRKT19))))
+                        (not (equal? (player-loba (breakout-p1 a-brkt))
+                                     (player-loba (breakout-p1 BRKT19)))))))
+(check-satisfied (update BRKT20)
+                 (lambda (a-brkt)
+                   (and (not (cons? (breakout-loba a-brkt)))
+                        (not (equal? (player-loba (breakout-p1 a-brkt))
+                                     (player-loba (breakout-p1 BRKT20)))))))
+(check-satisfied (update BRKT21)
+                 (lambda (a-brkt)
+                   (and (not (cons? (breakout-loba a-brkt)))
+                        (not (equal? (player-loba (breakout-p1 a-brkt))
+                                     (player-loba (breakout-p1 BRKT20)))))))
+(check-satisfied (update BRKT22)
+                 (lambda (a-brkt)
+                   (and (positive? (breakout-next-silent-frame a-brkt))
+                        (not (negative? (breakout-credit-count a-brkt)))
+                        (positive? (high-scores-cavity (breakout-high-scores a-brkt)))
+                        (equal? (length (breakout-lop a-brkt)) 13)
+                        (equal? (length (breakout-loba a-brkt)) 18)
+                        (not (equal? (breakout-p2 a-brkt)
+                                     (breakout-p2 BRKT22))))))
+(check-satisfied (update BRKT23)
+                 (lambda (a-brkt)
+                   (and (cons? (breakout-loba a-brkt))
+                        (equal? (length (breakout-lop a-brkt)) 13)
+                        (> (breakout-serve-num a-brkt) (breakout-serve-num BRKT23))
+                        (positive? (high-scores-double (breakout-high-scores a-brkt)))
+                        (attract? (breakout-mode a-brkt)))))
+(check-satisfied (update BRKT24)
+                 (lambda (a-brkt)
+                   (and (ready-to-play? (breakout-mode a-brkt))
+                        (positive? (high-scores-progressive (breakout-high-scores a-brkt)))
+                        (not (equal? (breakout-p2 a-brkt)
+                                     (breakout-p2 BRKT22))))))
+(check-satisfied (update BRKT25)
+                 (lambda (a-brkt)
+                   (and (not (equal? (breakout-loba a-brkt)
+                                     (breakout-loba BRKT25)))
+                        (not (equal? (breakout-p1 a-brkt)
+                                     (breakout-p1 BRKT25))))))
+(check-satisfied (update BRKT26)
+                 (lambda (a-brkt)
+                   (and (not (equal? (breakout-loba a-brkt)
+                                     (breakout-loba BRKT26)))
+                        (not (equal? (breakout-p1 a-brkt)
+                                     (breakout-p1 BRKT26))))))
+(check-satisfied (update BRKT27)
+                 (lambda (a-brkt)
+                   (and (not (equal? (breakout-loba a-brkt)
+                                     (breakout-loba BRKT27)))
+                        (not (equal? (breakout-p1 a-brkt)
+                                     (breakout-p1 BRKT27))))))
+(check-satisfied (update BRKT28)
+                 (lambda (a-brkt)
+                   (and (positive? (breakout-next-silent-frame a-brkt))
+                        (positive? (high-scores-double (breakout-high-scores a-brkt)))
+                        (not (equal? (breakout-p2 a-brkt)
+                                     (breakout-p2 BRKT22)))
+                        (equal? (length (breakout-loba a-brkt)) 17))))
 
 ;;;;;;;;;;;;;;;;;;;;;;; BALLS ;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -1887,10 +2075,6 @@
           ; 'new-ball' position
           (define x3 (ball-cx new-ball))
           (define y3 (ball-cy new-ball))
-          ; reflect-v : Angle -> Angle
-          ; reflect Angle 'a' vertically
-          (define (reflect-v a)
-            (- a))
           ; brick-collision? : Ball Brick -> Boolean
           ; check whether 'a-ball' is in collision with 'a-brick'
           (define (brick-collision? a-ball a-brick)
@@ -2075,6 +2259,13 @@
       [else
        (set-attract #true "cavity"
                     (reset-game CAVITY-BALLS-0 CAVITY-BRICKS-0 '() a-brkt))])))
+
+;;;;;;;;;;;;;;;;;;;; READY-TO-PLAY MODE ;;;;;;;;;;;;;;;;;;
+
+; update-ready-to-play : Breakout -> Breakout
+; update 'a-brkt' assuming it is in ready-to-play mode
+(define (update-ready-to-play a-brkt)
+  a-brkt)
 
 ;;;;;;;;;;;;;;;;;;;;;;; PLAY MODE ;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -2421,7 +2612,7 @@
                                                                  (define maybe-bonus-image
                                                                    (if (play-mode-has-one-serve? a-mode)
                                                                        PF-IMG
-                                                                       (render-bonus (play-mode-game a-mode)
+                                                                       (render-bonus (ctrl-panel-game (breakout-ctrl-panel a-brkt))
                                                                                      PF-IMG))))
                                                            (if (not (ctrl-panel-one-player? (breakout-ctrl-panel a-brkt)))
                                                                (render-player-score (player-score (breakout-p2 a-brkt))
@@ -2544,7 +2735,12 @@
                           "left" "top"
                           (render-paddles (rest a-lop) bg-img)))]))
 
-; Data Examples
+;; Examples
+(check-member-of (render BRKT1) TEST1 TEST1-2)
+(check-member-of (render BRKT2) TEST2 TEST2-2)
+(check-member-of (render BRKT5) TEST3 TEST3-2)
+(check-member-of (render BRKT6) TEST4 TEST4-2)
+
 (define TEST1 (place-image (square (* 2 BALL-RADIUS)
                                    "solid"
                                    (row->color
@@ -2583,38 +2779,38 @@
                                                                                                "right" "top"
                                                                                                PF-IMG))))))))
 (define TEST1-2 (place-image (square (* 2 BALL-RADIUS)
-                                   "solid"
-                                   (row->color
-                                    (floor (/ (row->y 8.5)
-                                              CHAR-BLK-LENGTH))))
-                           (col->x 7.5)
-                           (row->y 8.5)
-                           (place-image (square (* 2 BALL-RADIUS)
-                                                "solid"
-                                                (row->color
-                                                 (floor (/ (row->y 8)
-                                                           CHAR-BLK-LENGTH))))
-                                        (col->x 17.5)
-                                        (row->y 8)
-                                        (render-bricks CAVITY-BRICKS-0
-                                                       (place-image/align (rectangle (- PADDLE-MAX-WIDTH PF-SPACING)
-                                                                                     IBRICK-HEIGHT
-                                                                                     "solid"
-                                                                                     (row->color 29))
-                                                                          (+ 50 (/ PF-SPACING 2))
-                                                                          (row->y 29)
-                                                                          "left" "top"
-                                                                          (place-image/align
-                                                                           (string->bitmap #true (number->string 1))
-                                                                           (col->x SERVE-NUM-COL)
-                                                                           (row->y SERVE-NUM-ROW)
-                                                                           "right" "top"
-                                                                           (place-image/align
-                                                                            CAVITY-BONUS-IMG
-                                                                            (col->x BONUS-COL)
-                                                                            (row->y BONUS-ROW)
-                                                                            "right" "top"                                                                                               
-                                                                            PF-IMG)))))))
+                                     "solid"
+                                     (row->color
+                                      (floor (/ (row->y 8.5)
+                                                CHAR-BLK-LENGTH))))
+                             (col->x 7.5)
+                             (row->y 8.5)
+                             (place-image (square (* 2 BALL-RADIUS)
+                                                  "solid"
+                                                  (row->color
+                                                   (floor (/ (row->y 8)
+                                                             CHAR-BLK-LENGTH))))
+                                          (col->x 17.5)
+                                          (row->y 8)
+                                          (render-bricks CAVITY-BRICKS-0
+                                                         (place-image/align (rectangle (- PADDLE-MAX-WIDTH PF-SPACING)
+                                                                                       IBRICK-HEIGHT
+                                                                                       "solid"
+                                                                                       (row->color 29))
+                                                                            (+ 50 (/ PF-SPACING 2))
+                                                                            (row->y 29)
+                                                                            "left" "top"
+                                                                            (place-image/align
+                                                                             (string->bitmap #true (number->string 1))
+                                                                             (col->x SERVE-NUM-COL)
+                                                                             (row->y SERVE-NUM-ROW)
+                                                                             "right" "top"
+                                                                             (place-image/align
+                                                                              CAVITY-BONUS-IMG
+                                                                              (col->x BONUS-COL)
+                                                                              (row->y BONUS-ROW)
+                                                                              "right" "top"                                                                                               
+                                                                              PF-IMG)))))))
 (define TEST2 (place-image (square (* 2 BALL-RADIUS)
                                    "solid"
                                    (row->color
@@ -2640,34 +2836,34 @@
                                                                                              "right" "top"
                                                                                              PF-IMG))))))
 (define TEST2-2 (place-image (square (* 2 BALL-RADIUS)
-                                   "solid"
-                                   (row->color
-                                    (floor (/ (row->y 8.5)
-                                              CHAR-BLK-LENGTH))))
-                           (col->x 7.5)
-                           (row->y 8.5)
-                           (place-image (square (* 2 BALL-RADIUS)
-                                                "solid"
-                                                (row->color
-                                                 (floor (/ (row->y 8)
-                                                           CHAR-BLK-LENGTH))))
-                                        (col->x 17.5)
-                                        (row->y 8)
-                                        (render-bricks CAVITY-BRICKS-0
-                                                       (place-image/align
-                                                        COIN-MODE-IMG
-                                                        (col->x COIN-MODE-COL)
-                                                        (row->y COIN-MODE-ROW)
-                                                        "right" "top"
-                                                        (place-image/align (string->bitmap #true (number->atari-string 00))
-                                                                           (col->x P1-SCORE-COL)
-                                                                           (row->y P1-SCORE-ROW)
-                                                                           "right" "top"
-                                                                           (place-image/align (string->bitmap #true (number->atari-string 00))
-                                                                                              (col->x P2-SCORE-COL)
-                                                                                              (row->y P2-SCORE-ROW)
-                                                                                              "right" "top"
-                                                                                              PF-IMG)))))))
+                                     "solid"
+                                     (row->color
+                                      (floor (/ (row->y 8.5)
+                                                CHAR-BLK-LENGTH))))
+                             (col->x 7.5)
+                             (row->y 8.5)
+                             (place-image (square (* 2 BALL-RADIUS)
+                                                  "solid"
+                                                  (row->color
+                                                   (floor (/ (row->y 8)
+                                                             CHAR-BLK-LENGTH))))
+                                          (col->x 17.5)
+                                          (row->y 8)
+                                          (render-bricks CAVITY-BRICKS-0
+                                                         (place-image/align
+                                                          COIN-MODE-IMG
+                                                          (col->x COIN-MODE-COL)
+                                                          (row->y COIN-MODE-ROW)
+                                                          "right" "top"
+                                                          (place-image/align (string->bitmap #true (number->atari-string 00))
+                                                                             (col->x P1-SCORE-COL)
+                                                                             (row->y P1-SCORE-ROW)
+                                                                             "right" "top"
+                                                                             (place-image/align (string->bitmap #true (number->atari-string 00))
+                                                                                                (col->x P2-SCORE-COL)
+                                                                                                (row->y P2-SCORE-ROW)
+                                                                                                "right" "top"
+                                                                                                PF-IMG)))))))
 
 (define TEST3 (place-image (square (* 2 BALL-RADIUS)
                                    "solid"
@@ -2691,53 +2887,53 @@
                                                                           (+ 50 (/ PF-SPACING 2))
                                                                           (row->y 29)
                                                                           "left" "top"                                                                         
+                                                                          (place-image/align
+                                                                           CAVITY-BONUS-IMG
+                                                                           (col->x BONUS-COL)
+                                                                           (row->y BONUS-ROW)
+                                                                           "right" "top"
                                                                            (place-image/align
-                                                                            CAVITY-BONUS-IMG
-                                                                            (col->x BONUS-COL)
-                                                                            (row->y BONUS-ROW)
+                                                                            COIN-MODE-IMG
+                                                                            (col->x COIN-MODE-COL)
+                                                                            (row->y COIN-MODE-ROW)
                                                                             "right" "top"
-                                                                            (place-image/align
-                                                                             COIN-MODE-IMG
-                                                                             (col->x COIN-MODE-COL)
-                                                                             (row->y COIN-MODE-ROW)
-                                                                             "right" "top"
-                                                                             (place-image/align (string->bitmap #true (number->atari-string 00))
-                                                                                                (col->x P1-SCORE-COL)
-                                                                                                (row->y P1-SCORE-ROW)
-                                                                                                "right" "top"
-                                                                                                (place-image/align (string->bitmap #true (number->atari-string 00))
-                                                                                                                   (col->x P2-SCORE-COL)
-                                                                                                                   (row->y P2-SCORE-ROW)
-                                                                                                                   "right" "top"
-                                                                                                                   PF-IMG)))))))))
+                                                                            (place-image/align (string->bitmap #true (number->atari-string 00))
+                                                                                               (col->x P1-SCORE-COL)
+                                                                                               (row->y P1-SCORE-ROW)
+                                                                                               "right" "top"
+                                                                                               (place-image/align (string->bitmap #true (number->atari-string 00))
+                                                                                                                  (col->x P2-SCORE-COL)
+                                                                                                                  (row->y P2-SCORE-ROW)
+                                                                                                                  "right" "top"
+                                                                                                                  PF-IMG)))))))))
                                    
 (define TEST3-2 (place-image (square (* 2 BALL-RADIUS)
-                                   "solid"
-                                   (row->color
-                                    (floor (/ (row->y 8.5)
-                                              CHAR-BLK-LENGTH))))
-                           (col->x 7.5)
-                           (row->y 8.5)
-                           (place-image (square (* 2 BALL-RADIUS)
-                                                "solid"
-                                                (row->color
-                                                 (floor (/ (row->y 8)
-                                                           CHAR-BLK-LENGTH))))
-                                        (col->x 17.5)
-                                        (row->y 8)
-                                        (render-bricks CAVITY-BRICKS-0
-                                                       (place-image/align (rectangle (- PADDLE-MAX-WIDTH PF-SPACING)
-                                                                                     IBRICK-HEIGHT
-                                                                                     "solid"
-                                                                                     (row->color 29))
-                                                                          (+ 50 (/ PF-SPACING 2))
-                                                                          (row->y 29)
-                                                                          "left" "top"                                                                         
-                                                                           (place-image/align
-                                                                            CAVITY-BONUS-IMG
-                                                                            (col->x BONUS-COL)
-                                                                            (row->y BONUS-ROW)
-                                                                            "right" "top"
+                                     "solid"
+                                     (row->color
+                                      (floor (/ (row->y 8.5)
+                                                CHAR-BLK-LENGTH))))
+                             (col->x 7.5)
+                             (row->y 8.5)
+                             (place-image (square (* 2 BALL-RADIUS)
+                                                  "solid"
+                                                  (row->color
+                                                   (floor (/ (row->y 8)
+                                                             CHAR-BLK-LENGTH))))
+                                          (col->x 17.5)
+                                          (row->y 8)
+                                          (render-bricks CAVITY-BRICKS-0
+                                                         (place-image/align (rectangle (- PADDLE-MAX-WIDTH PF-SPACING)
+                                                                                       IBRICK-HEIGHT
+                                                                                       "solid"
+                                                                                       (row->color 29))
+                                                                            (+ 50 (/ PF-SPACING 2))
+                                                                            (row->y 29)
+                                                                            "left" "top"                                                                         
+                                                                            (place-image/align
+                                                                             CAVITY-BONUS-IMG
+                                                                             (col->x BONUS-COL)
+                                                                             (row->y BONUS-ROW)
+                                                                             "right" "top"
                                                                              (place-image/align (string->bitmap #true (number->atari-string 00))
                                                                                                 (col->x P1-SCORE-COL)
                                                                                                 (row->y P1-SCORE-ROW)
@@ -2769,72 +2965,67 @@
                                                                           (+ 50 (/ PF-SPACING 2))
                                                                           (row->y 29)
                                                                           "left" "top"                                                                         
+                                                                          (place-image/align
+                                                                           CAVITY-BONUS-IMG
+                                                                           (col->x BONUS-COL)
+                                                                           (row->y BONUS-ROW)
+                                                                           "right" "top"
                                                                            (place-image/align
-                                                                            CAVITY-BONUS-IMG
-                                                                            (col->x BONUS-COL)
-                                                                            (row->y BONUS-ROW)
+                                                                            (beside HIGH-SCORE-PREFIX-IMG
+                                                                                    (string->bitmap #true (number->atari-string 100)))
+                                                                            (col->x COIN-MODE-COL)
+                                                                            (row->y COIN-MODE-ROW)
                                                                             "right" "top"
-                                                                            (place-image/align
-                                                                             (beside HIGH-SCORE-PREFIX-IMG
-                                                                                     (string->bitmap #true (number->atari-string 100)))
-                                                                             (col->x COIN-MODE-COL)
-                                                                             (row->y COIN-MODE-ROW)
-                                                                             "right" "top"
-                                                                             (place-image/align (string->bitmap #true (number->atari-string 00))
-                                                                                                (col->x P1-SCORE-COL)
-                                                                                                (row->y P1-SCORE-ROW)
-                                                                                                "right" "top"
-                                                                                                (place-image/align (string->bitmap #true (number->atari-string 30))
-                                                                                                                   (col->x P2-SCORE-COL)
-                                                                                                                   (row->y P2-SCORE-ROW)
-                                                                                                                   "right" "top"
-                                                                                                                   PF-IMG)))))))))
+                                                                            (place-image/align (string->bitmap #true (number->atari-string 00))
+                                                                                               (col->x P1-SCORE-COL)
+                                                                                               (row->y P1-SCORE-ROW)
+                                                                                               "right" "top"
+                                                                                               (place-image/align (string->bitmap #true (number->atari-string 30))
+                                                                                                                  (col->x P2-SCORE-COL)
+                                                                                                                  (row->y P2-SCORE-ROW)
+                                                                                                                  "right" "top"
+                                                                                                                  PF-IMG)))))))))
 (define TEST4-2 (place-image (square (* 2 BALL-RADIUS)
-                                   "solid"
-                                   (row->color
-                                    (floor (/ (row->y 8.5)
-                                              CHAR-BLK-LENGTH))))
-                           (col->x 7.5)
-                           (row->y 8.5)
-                           (place-image (square (* 2 BALL-RADIUS)
-                                                "solid"
-                                                (row->color
-                                                 (floor (/ (row->y 8)
-                                                           CHAR-BLK-LENGTH))))
-                                        (col->x 17.5)
-                                        (row->y 8)
-                                        (render-bricks CAVITY-BRICKS-0
-                                                       (place-image/align (rectangle (- PADDLE-MAX-WIDTH PF-SPACING)
-                                                                                     IBRICK-HEIGHT
-                                                                                     "solid"
-                                                                                     (row->color 29))
-                                                                          (+ 50 (/ PF-SPACING 2))
-                                                                          (row->y 29)
-                                                                          "left" "top"                                                                         
-                                                                           (place-image/align
-                                                                            CAVITY-BONUS-IMG
-                                                                            (col->x BONUS-COL)
-                                                                            (row->y BONUS-ROW)
-                                                                            "right" "top"
+                                     "solid"
+                                     (row->color
+                                      (floor (/ (row->y 8.5)
+                                                CHAR-BLK-LENGTH))))
+                             (col->x 7.5)
+                             (row->y 8.5)
+                             (place-image (square (* 2 BALL-RADIUS)
+                                                  "solid"
+                                                  (row->color
+                                                   (floor (/ (row->y 8)
+                                                             CHAR-BLK-LENGTH))))
+                                          (col->x 17.5)
+                                          (row->y 8)
+                                          (render-bricks CAVITY-BRICKS-0
+                                                         (place-image/align (rectangle (- PADDLE-MAX-WIDTH PF-SPACING)
+                                                                                       IBRICK-HEIGHT
+                                                                                       "solid"
+                                                                                       (row->color 29))
+                                                                            (+ 50 (/ PF-SPACING 2))
+                                                                            (row->y 29)
+                                                                            "left" "top"                                                                         
                                                                             (place-image/align
-                                                                             COIN-MODE-IMG
-                                                                             (col->x COIN-MODE-COL)
-                                                                             (row->y COIN-MODE-ROW)
+                                                                             CAVITY-BONUS-IMG
+                                                                             (col->x BONUS-COL)
+                                                                             (row->y BONUS-ROW)
                                                                              "right" "top"
-                                                                             (place-image/align (string->bitmap #true (number->atari-string 00))
-                                                                                                (col->x P1-SCORE-COL)
-                                                                                                (row->y P1-SCORE-ROW)
-                                                                                                "right" "top"
-                                                                                                (place-image/align (string->bitmap #true (number->atari-string 30))
-                                                                                                                   (col->x P2-SCORE-COL)
-                                                                                                                   (row->y P2-SCORE-ROW)
-                                                                                                                   "right" "top"
-                                                                                                                   PF-IMG)))))))))
-; Examples
-(check-member-of (render BRKT1) TEST1 TEST1-2)
-(check-member-of (render BRKT2) TEST2 TEST2-2)
-(check-member-of (render BRKT5) TEST3 TEST3-2)
-(check-member-of (render BRKT6) TEST4 TEST4-2)
+                                                                             (place-image/align
+                                                                              COIN-MODE-IMG
+                                                                              (col->x COIN-MODE-COL)
+                                                                              (row->y COIN-MODE-ROW)
+                                                                              "right" "top"
+                                                                              (place-image/align (string->bitmap #true (number->atari-string 00))
+                                                                                                 (col->x P1-SCORE-COL)
+                                                                                                 (row->y P1-SCORE-ROW)
+                                                                                                 "right" "top"
+                                                                                                 (place-image/align (string->bitmap #true (number->atari-string 30))
+                                                                                                                    (col->x P2-SCORE-COL)
+                                                                                                                    (row->y P2-SCORE-ROW)
+                                                                                                                    "right" "top"
+                                                                                                                    PF-IMG)))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -2860,71 +3051,6 @@
     [(key=? "2" key)
      (try-set-player-one #false a-brkt)]
     [else a-brkt]))
-
-(check-expect (handle-key BRKT2 "\r") (make-breakout (breakout-loba BRKT2)
-                                                     (list (make-paddle 336 29 48))
-                                                     (breakout-serve-num BRKT2)
-                                                     (breakout-p1 BRKT2)
-                                                     (breakout-p2 BRKT2)
-                                                     (breakout-high-scores BRKT2)
-                                                     1
-                                                     (breakout-ctrl-panel BRKT2)
-                                                     MODE-1
-                                                     (breakout-next-silent-frame BRKT2)))
-(check-expect (handle-key BRKT5 "left") (make-breakout (breakout-loba BRKT5)
-                                                       (list (make-paddle 336 29 48))
-                                                       (breakout-serve-num BRKT5)
-                                                       (make-player 0 '() PROGRESSIVE-BRICKS-0 0)
-                                                       (make-player 0 '() PROGRESSIVE-BRICKS-0 0)
-                                                       (breakout-high-scores BRKT5)
-                                                       (breakout-credit-count BRKT5)
-                                                       (make-ctrl-panel #false 336 "progressive")
-                                                       (breakout-mode BRKT5)
-                                                       (breakout-next-silent-frame BRKT5)))
-(check-expect (handle-key BRKT5 "right") (make-breakout (breakout-loba BRKT5)
-                                                       (list (make-paddle 336 24 48)
-                                                             (make-paddle 336 29 48))
-                                                       (breakout-serve-num BRKT5)
-                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
-                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
-                                                       (breakout-high-scores BRKT5)
-                                                       (breakout-credit-count BRKT5)
-                                                       (make-ctrl-panel #false 336 "double")
-                                                       (breakout-mode BRKT5)
-                                                       (breakout-next-silent-frame BRKT5)))
-(check-expect (handle-key BRKT7 "1") (make-breakout (breakout-loba BRKT7)
-                                                    (breakout-lop BRKT7)
-                                                    (breakout-serve-num BRKT7)
-                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
-                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
-                                                    (breakout-high-scores BRKT7)
-                                                    1
-                                                    (make-ctrl-panel #true 336 "cavity")
-                                                    (make-play-mode "cavity" #false #false)
-                                                    (breakout-next-silent-frame BRKT7)))
-(check-expect (handle-key BRKT7 "2") (make-breakout (breakout-loba BRKT7)
-                                                    (breakout-lop BRKT7)
-                                                    (breakout-serve-num BRKT7)
-                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
-                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
-                                                    (breakout-high-scores BRKT7)
-                                                    0
-                                                    (make-ctrl-panel #false 336 "cavity")
-                                                    (make-play-mode "cavity" #false #false)
-                                                    (breakout-next-silent-frame BRKT7)))
-(check-expect (handle-key BRKT1 "d") (make-breakout (breakout-loba BRKT1)
-                                                       (list (make-paddle 336 24 48)
-                                                             (make-paddle 336 29 48))
-                                                       (breakout-serve-num BRKT1)
-                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
-                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
-                                                       (breakout-high-scores BRKT1)
-                                                       (breakout-credit-count BRKT1)
-                                                       (make-ctrl-panel #true 336 "double")
-                                                       (make-play-mode "cavity" #false #false)
-                                                       (breakout-next-silent-frame BRKT1)))
-(check-within (handle-key BRKT1 " ") (serve "cavity" BRKT1) (+ BALL-MIN-X (- BALL-MAX-X BALL-MIN-X -1)))
-(check-expect (handle-key BRKT1 "f") BRKT1)
 
 ; try-serve : Breakout -> Breakout
 ; serve one ball in 'a-brkt' if possible
@@ -3005,6 +3131,72 @@
                                    (breakout-next-silent-frame a-brkt))))
         (andplay ding a-brkt))))
 
+;; Examples
+(check-expect (handle-key BRKT2 "\r") (make-breakout (breakout-loba BRKT2)
+                                                     (list (make-paddle 336 29 48))
+                                                     (breakout-serve-num BRKT2)
+                                                     (breakout-p1 BRKT2)
+                                                     (breakout-p2 BRKT2)
+                                                     (breakout-high-scores BRKT2)
+                                                     1
+                                                     (breakout-ctrl-panel BRKT2)
+                                                     MODE-1
+                                                     (breakout-next-silent-frame BRKT2)))
+(check-expect (handle-key BRKT5 "left") (make-breakout (breakout-loba BRKT5)
+                                                       (list (make-paddle 336 29 48))
+                                                       (breakout-serve-num BRKT5)
+                                                       (make-player 0 '() PROGRESSIVE-BRICKS-0 0)
+                                                       (make-player 0 '() PROGRESSIVE-BRICKS-0 0)
+                                                       (breakout-high-scores BRKT5)
+                                                       (breakout-credit-count BRKT5)
+                                                       (make-ctrl-panel #false 336 "progressive")
+                                                       (breakout-mode BRKT5)
+                                                       (breakout-next-silent-frame BRKT5)))
+(check-expect (handle-key BRKT5 "right") (make-breakout (breakout-loba BRKT5)
+                                                       (list (make-paddle 336 24 48)
+                                                             (make-paddle 336 29 48))
+                                                       (breakout-serve-num BRKT5)
+                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
+                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
+                                                       (breakout-high-scores BRKT5)
+                                                       (breakout-credit-count BRKT5)
+                                                       (make-ctrl-panel #false 336 "double")
+                                                       (breakout-mode BRKT5)
+                                                       (breakout-next-silent-frame BRKT5)))
+(check-expect (handle-key BRKT7 "1") (make-breakout (breakout-loba BRKT7)
+                                                    (breakout-lop BRKT7)
+                                                    (breakout-serve-num BRKT7)
+                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
+                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
+                                                    (breakout-high-scores BRKT7)
+                                                    1
+                                                    (make-ctrl-panel #true 336 "cavity")
+                                                    (make-play-mode "cavity" #false #false)
+                                                    (breakout-next-silent-frame BRKT7)))
+(check-expect (handle-key BRKT7 "2") (make-breakout (breakout-loba BRKT7)
+                                                    (breakout-lop BRKT7)
+                                                    (breakout-serve-num BRKT7)
+                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
+                                                    (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0)
+                                                    (breakout-high-scores BRKT7)
+                                                    0
+                                                    (make-ctrl-panel #false 336 "cavity")
+                                                    (make-play-mode "cavity" #false #false)
+                                                    (breakout-next-silent-frame BRKT7)))
+(check-expect (handle-key BRKT1 "d") (make-breakout (breakout-loba BRKT1)
+                                                       (list (make-paddle 336 24 48)
+                                                             (make-paddle 336 29 48))
+                                                       (breakout-serve-num BRKT1)
+                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
+                                                       (make-player 0 '() DOUBLE-BRICKS-0 0)
+                                                       (breakout-high-scores BRKT1)
+                                                       (breakout-credit-count BRKT1)
+                                                       (make-ctrl-panel #true 336 "double")
+                                                       (make-play-mode "cavity" #false #false)
+                                                       (breakout-next-silent-frame BRKT1)))
+(check-within (handle-key BRKT1 " ") (serve "cavity" BRKT1) (+ BALL-MIN-X (- BALL-MAX-X BALL-MIN-X -1)))
+(check-expect (handle-key BRKT1 "f") BRKT1)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Mouse handling functions
@@ -3026,9 +3218,33 @@
                                    (max (- x (/ first-paddle-width 2))
                                         (- (col->x 1) PF-SPACING)))
                               a-brkt))]
-      [else a-brkt])))
+      [else a-brkt])))    
 
-; Examples
+; try-update-paddle-x : Number Breakout -> Breakout
+; update the paddle position of the control panel as well as
+; of all the paddles in 'a-brkt' if possible
+(define (try-update-paddle-x x a-brkt)
+  (local (; current control panel
+          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
+          ; new breakout with the control panel updated
+          (define new-brkt
+            (make-breakout (breakout-loba a-brkt)
+                           (breakout-lop a-brkt)
+                           (breakout-serve-num a-brkt)
+                           (breakout-p1 a-brkt)
+                           (breakout-p2 a-brkt)
+                           (breakout-high-scores a-brkt)
+                           (breakout-credit-count a-brkt)
+                           (make-ctrl-panel (ctrl-panel-one-player? a-ctrl-panel)
+                                            x
+                                            (ctrl-panel-game a-ctrl-panel))
+                           (breakout-mode a-brkt)
+                           (breakout-next-silent-frame a-brkt))))
+    (if (attract? (breakout-mode new-brkt))
+        new-brkt
+        (update-paddle-x new-brkt))))
+
+;; Examples
 (check-expect (handle-mouse BRKT1 100 50 "move") (make-breakout (breakout-loba BRKT1)
                                                                 (list (make-paddle 76 29 PADDLE-MAX-WIDTH))
                                                                 (breakout-serve-num BRKT1)
@@ -3059,31 +3275,7 @@
                                                               (make-ctrl-panel #true IBRICK-HEIGHT "cavity")
                                                               (breakout-mode BRKT1)
                                                               (breakout-next-silent-frame BRKT1)))
-(check-expect (handle-mouse BRKT1 100 50 "drag") BRKT1)    
-
-; try-update-paddle-x : Number Breakout -> Breakout
-; update the paddle position of the control panel as well as
-; of all the paddles in 'a-brkt' if possible
-(define (try-update-paddle-x x a-brkt)
-  (local (; current control panel
-          (define a-ctrl-panel (breakout-ctrl-panel a-brkt))
-          ; new breakout with the control panel updated
-          (define new-brkt
-            (make-breakout (breakout-loba a-brkt)
-                           (breakout-lop a-brkt)
-                           (breakout-serve-num a-brkt)
-                           (breakout-p1 a-brkt)
-                           (breakout-p2 a-brkt)
-                           (breakout-high-scores a-brkt)
-                           (breakout-credit-count a-brkt)
-                           (make-ctrl-panel (ctrl-panel-one-player? a-ctrl-panel)
-                                            x
-                                            (ctrl-panel-game a-ctrl-panel))
-                           (breakout-mode a-brkt)
-                           (breakout-next-silent-frame a-brkt))))
-    (if (attract? (breakout-mode new-brkt))
-        new-brkt
-        (update-paddle-x new-brkt))))
+(check-expect (handle-mouse BRKT1 100 50 "drag") BRKT1)
 
 ;;;;;;;;;;;;;;;;;;
 ;;;
@@ -3103,4 +3295,6 @@
 ; use the following expression to run the program
 ; (run BRKT0)
 
-(stop)
+; we recommend using the following expression
+; if you don't intend to use the above function again without pushing Run
+; (stop) ; used to "stop all of the currently playing sounds"
