@@ -143,9 +143,6 @@
 (define CAVITY-BRICK-WALL-HEIGHT 8)
 (define PROGRESSIVE-BRICK-WALL-HEIGHT 4)
 
-; game bricks
-; paddle rows for each game
-
 ; the maximum number of active balls each game can start off with
 (define CAVITY-MAX-NUM-BALLS-0 1)
 (define DOUBLE-MAX-NUM-BALLS-0 2)
@@ -170,7 +167,7 @@
 ; WAV file path of the bounce sound
 (define RS-BOUNCE-PATH "resources/sounds/wall.wav")
 
-; a stream for the "tick" sounds
+; Pstream (a stream for the "tick" sounds)
 (define RS-TICK-STREAM (make-pstream))
 
 ; path of CSV file containing a 8x8 monochrome bitmap font
@@ -190,6 +187,15 @@
 (define BALL-DIR-RDN-0 (* BALL-DIR-DEG-0 pi 1/180))
 (define BALL-DIR-RDN-1 (* BALL-DIR-DEG-1 pi 1/180))
 (define BALL-DIR-RDN-2 (* BALL-DIR-DEG-2 pi 1/180))
+
+; vector of possible served ball angles
+(define ANGLES
+  (vector BALL-DIR-RDN-0
+          BALL-DIR-RDN-1
+          BALL-DIR-RDN-2
+          (- pi BALL-DIR-RDN-0)
+          (- pi BALL-DIR-RDN-1)
+          (- pi BALL-DIR-RDN-2)))
 
 ; "tick" sound when the ball hits a 1-point brick
 (define RS-TICK (rs-read RS-TICK-PATH))
@@ -300,16 +306,6 @@
 ; - "1"
 ; interpretation: string of an 8-bit number
 
-; a Pstream is (make-pstream)
-; interpretation: an ongoing signal with a buffer time of about 50ms
-; (define-struct pstream [])
-
-; an Rsound is a Structure satisfying the predicate 'rsound?'
-; interpretation: a sound
-
-; a Color is a String, Symbol or Structure satisfying the predicate 'image-color?'
-; interpretation: a color
-
 ; an Angle is a Number between (- pi) exclusive and pi inclusive
 ; interpretation: an angle in radians
 
@@ -362,12 +358,6 @@
 ; interpretation: a hitbox with its upper left at ('left', 'top')
 ;                 and lower right at ('right', 'bottom')
 (define-struct hitbox [left top right bottom])
-
-; a ColorOverlay is (make-color-overlay Color NonnegativeInteger NonnegativeInteger)
-; interpretation: a 'c' color overlay applied over rows 'i' inclusive to 'j' exclusive
-(define-struct color-overlay [c i j])
-
-; a Double is (make-double loba lobr lop bonus 
 
 ; a Game is one of the following Strings:
 ; - "double"
@@ -453,26 +443,38 @@
 
 ; Backwall
 (define BACKWALL (make-backwall))
+
 ; Frontwall
 (define FRONTWALL (make-frontwall))
+
 ; Nothing
 (define NOTHING (make-nothing))
 
 ; Paddle
-(define CAVITY-PADDLES-0
-  (list (make-paddle 50 29 PADDLE-MAX-WIDTH)))
-(define DOUBLE-PADDLES-0
-  (list (make-paddle 50 24 PADDLE-MAX-WIDTH)
-        (make-paddle 50 29 PADDLE-MAX-WIDTH)))
-(define PROGRESSIVE-PADDLES-0
-  (list (make-paddle 50 29 PADDLE-MAX-WIDTH)))
+; paddles in each breakout game
+(define CAVITY-PADDLE      (make-paddle 50 CAVITY-PADDLE-ROW PADDLE-MAX-WIDTH))
+(define DOUBLE-PADDLE-0    (make-paddle 50 DOUBLE-PADDLE-ROW-0 PADDLE-MAX-WIDTH))
+(define DOUBLE-PADDLE-1    (make-paddle 50 DOUBLE-PADDLE-ROW-1 PADDLE-MAX-WIDTH))
+(define PROGRESSIVE-PADDLE (make-paddle 50 PROGRESSIVE-PADDLE-ROW PADDLE-MAX-WIDTH))
 
+; List<Paddle>
+; paddles in each breakout game combined into three lists
+(define CAVITY-PADDLES-0      (list CAVITY-PADDLE))
+(define DOUBLE-PADDLES-0      (list DOUBLE-PADDLE-0 DOUBLE-PADDLE-1))
+(define PROGRESSIVE-PADDLES-0 (list PROGRESSIVE-PADDLE))
+; the invisible paddle during attract mode
 (define ATTRACT-PADDLES
   (build-list (/ (- PF-COL-COUNT 2) 2)
-              (lambda (n) (make-paddle (* CHAR-BLK-LENGTH (+ (* 2 n) 1)) 29 BRICK-WIDTH))))
+              (lambda (n)
+                (make-paddle (* CHAR-BLK-LENGTH (+ (* 2 n) 1))
+                             CAVITY-PADDLE-ROW
+                             BRICK-WIDTH))))
 
+; List<Brick>
+; bricks that appear once in a while during a progressive game
 (define NEW-PROGRESSIVE-BRICKS
   (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 1))))
+; bricks at the beginning of a progressive game
 (define PROGRESSIVE-BRICKS-0
   (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 1)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 2)))
@@ -482,6 +484,7 @@
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 10)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
+; bricks at the beginning of a double game
 (define DOUBLE-BRICKS-0
   (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 5)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 6)))
@@ -491,6 +494,7 @@
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 10)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
+; bricks at the beginning of a cavity game
 (define CAVITY-BRICKS-0
   (append (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 5)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 6)))
@@ -505,12 +509,33 @@
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 11)))
           (build-list (/ (- PF-COL-COUNT 2) 2) (lambda (n) (make-brick (+ (* 2 n) 1) 12)))))
 
-(define CAVITY-BALLS-0
-  (list (make-ball (* CHAR-BLK-LENGTH 7.5) (* CHAR-BLK-LENGTH 8.5) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false)
-        (make-ball (* CHAR-BLK-LENGTH 17.5) (* CHAR-BLK-LENGTH 8) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false)))
+; Ball
+; balls initially present at the start of a cavity game
+(define CAVITY-BALL-0
+  (make-ball (* CHAR-BLK-LENGTH 7.5)
+             (* CHAR-BLK-LENGTH 8.5)
+             BALL-MIN-SPEED
+             BALL-DIR-RDN-2
+             NOTHING NOTHING
+             0 0 #false))
+(define CAVITY-BALL-1
+  (make-ball (* CHAR-BLK-LENGTH 17.5)
+             (* CHAR-BLK-LENGTH 8)
+             BALL-MIN-SPEED
+             (- pi BALL-DIR-RDN-2)
+             NOTHING NOTHING
+             0 0 #false))
+
+; List<Ball>
+; balls in each Super Breakout game
+(define CAVITY-BALLS-0 (list CAVITY-BALL-0 CAVITY-BALL-1))
 (define DOUBLE-BALLS-0 '())
 (define PROGRESSIVE-BALLS-0 '())
 
+(define LOBA-0
+  (list (make-ball (+ BALL-MIN-X 55) (/ PF-HEIGHT 2) BALL-MIN-SPEED
+                   BALL-DIR-RDN-2 NOTHING NOTHING 0 1 #false)))
+(define LOP-0 ATTRACT-PADDLES)
 (define SERVE-NUM-0 1)
 (define P1-0 (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0))
 (define P2-0 (make-player 0 CAVITY-BALLS-0 CAVITY-BRICKS-0 0))
@@ -520,17 +545,16 @@
 (define MODE-0 (make-attract #true "cavity"))
 (define NEXT-SILENT-FRAME-0 0)
 
-(define ATTRACT-CAVITY-0
-  (make-breakout '()
-                 ATTRACT-PADDLES
-                 SERVE-NUM-0
-                 P1-0
-                 P2-0
-                 HIGH-SCORES-0
-                 CREDIT-COUNT-0
-                 CTRL-PANEL-0
-                 MODE-0
-                 NEXT-SILENT-FRAME-0))
+(define BRKT0 (make-breakout LOBA-0
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             MODE-0
+                             NEXT-SILENT-FRAME-0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -716,12 +740,12 @@
 
 ;; Sounds
 
-; try-andplay : Rsound Breakout X -> X
-; try to play 'rsound', then return 'val'
-(define (try-andplay rsound a-brkt val)
+; try-andplay : Rsound Breakout X Any -> X
+; evaluate 'val2', try to play 'rsound', then return 'val1'
+(define (try-andplay rsound a-brkt val1 val2)
   (if (play-mode? (breakout-mode a-brkt))
-      (andplay rsound val)
-      val))
+      (andplay rsound val1)
+      val1))
 
 ; try-andqueue-ticks : NonnegativeInteger Breakout -> Breakout
 ; queue the next sequence of 'tick-score' tick sound(s) in 'RS-TICK-STREAM' and
@@ -784,7 +808,8 @@
                                NOTHING
                                (ball-paddle-hit-count a-ball)
                                (ball-serve-delay a-ball)
-                               (ball-has-child? a-ball)))]
+                               (ball-has-child? a-ball))
+                    #false)]
       [(<= x2 BALL-MIN-X) ; left sidewall collision
        (try-andplay RS-BOUNCE
                     a-brkt
@@ -795,7 +820,8 @@
                                NOTHING
                                (ball-paddle-hit-count a-ball)
                                (ball-serve-delay a-ball)
-                               (ball-has-child? a-ball)))]
+                               (ball-has-child? a-ball))
+                    #false)]
       [else ; no collision
        (make-ball x2 y2
                   (ball-speed a-ball)
@@ -818,36 +844,27 @@
 ; serve-ball : NonnegativeNumber Breakout -> Breakout
 ; serve one random ball with 'serve-delay' and 'has-child?' in 'a-brkt'
 (define (serve-ball serve-delay has-child? a-brkt)
-  (local (; vector of possible served ball angles
-          (define angles
-            (vector BALL-DIR-RDN-0
-                    BALL-DIR-RDN-1
-                    BALL-DIR-RDN-2
-                    (- pi BALL-DIR-RDN-0)
-                    (- pi BALL-DIR-RDN-1)
-                    (- pi BALL-DIR-RDN-2)))
-          ; current mode in 'a-brkt'
-          (define a-mode (breakout-mode a-brkt))
-          ; the new served ball
-          (define new-ball
-            (make-ball (+ BALL-MIN-X (random (add1 (- BALL-MAX-X BALL-MIN-X))))
-                       (/ PF-HEIGHT 2)
-                       BALL-MIN-SPEED
-                       (vector-ref angles (random 6))
-                       NOTHING
-                       0 0 serve-delay has-child?)))
-  (make-breakout (cons new-ball (breakout-loba a-brkt))
-                 (breakout-lop a-brkt)
-                 (breakout-serve-num a-brkt)
-                 (breakout-p1 a-brkt)
-                 (breakout-p2 a-brkt)
-                 (breakout-high-scores a-brkt)
-                 (breakout-credit-count a-brkt)
-                 (breakout-ctrl-panel a-brkt)
-                 (if (play-mode? a-mode)
-                     (make-play-mode (play-mode-game a-mode) #true #false)
-                     a-mode)
-                 (breakout-next-silent-frame a-brkt))))
+  (local (; current mode in 'a-brkt'
+          (define a-mode (breakout-mode a-brkt)))
+    (make-breakout (cons (make-ball (+ BALL-MIN-X
+                                       (random (add1 (- BALL-MAX-X BALL-MIN-X))))
+                                    (/ PF-HEIGHT 2)
+                                    BALL-MIN-SPEED
+                                    (vector-ref ANGLES (random 6))
+                                    NOTHING NOTHING
+                                    0 serve-delay has-child?)
+                         (breakout-loba a-brkt))
+                   (breakout-lop a-brkt)
+                   (breakout-serve-num a-brkt)
+                   (breakout-p1 a-brkt)
+                   (breakout-p2 a-brkt)
+                   (breakout-high-scores a-brkt)
+                   (breakout-credit-count a-brkt)
+                   (breakout-ctrl-panel a-brkt)
+                   (if (play-mode? a-mode)
+                       (make-play-mode (play-mode-game a-mode) #true #false)
+                       a-mode)
+                   (breakout-next-silent-frame a-brkt))))
 
 ;; Super Breakout Modes
 
@@ -1152,10 +1169,8 @@
           (local (; difference between minimum and maximum ball speeds
                   (define diff (- BALL-MAX-SPEED BALL-MIN-SPEED)))
             (cond
-              [(zero? paddle-hit-count)
-               (+ BALL-MIN-SPEED (* diff 0/5))]
-              [(= PADDLE-HITS-BALL-PROGRESSION-0
-                  paddle-hit-count)
+              [(>= PADDLE-HITS-BALL-PROGRESSION-0
+                   paddle-hit-count)
                (+ BALL-MIN-SPEED (* diff 1/5))]
               [(= PADDLE-HITS-BALL-PROGRESSION-1
                   paddle-hit-count)
@@ -1218,6 +1233,429 @@
        (update-play new-brkt)]
       [else new-brkt])))
 
+; Data Examples
+(define BRKT3 (make-breakout '()
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-attract #false "cavity")
+                             NEXT-SILENT-FRAME-0))
+(define BRKT4 (make-breakout '()
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-attract #true "cavity")
+                             NEXT-SILENT-FRAME-0))
+(define BRKT5 (make-breakout '()
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-play-mode "cavity" #false #false)
+                             NEXT-SILENT-FRAME-0))
+(define BRKT6 (make-breakout '()
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-play-mode "cavity" #false #true)
+                             (+ 100 (pstream-current-frame RS-TICK-STREAM))))
+(define BRKT7 (make-breakout '()
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-ready-to-play)
+                             NEXT-SILENT-FRAME-0))
+
+(define BALL0 (first LOBA-0))
+(define BALL1 (make-ball (* CHAR-BLK-LENGTH 7.5)
+                         (* CHAR-BLK-LENGTH 8.5)
+                         BALL-MIN-SPEED
+                         BALL-DIR-RDN-2
+                         BACKWALL BACKWALL
+                         0 0 #false))
+(define BALL2 (make-ball (* CHAR-BLK-LENGTH 7.5)
+                         (* CHAR-BLK-LENGTH 8.5)
+                         BALL-MIN-SPEED
+                         BALL-DIR-RDN-2
+                         BACKWALL BACKWALL
+                         PADDLE-HITS-PER-GAME 0 #false))
+(define BALL3 (make-ball (* CHAR-BLK-LENGTH 7.5)
+                         (* CHAR-BLK-LENGTH 8.5)
+                         BALL-MIN-SPEED
+                         BALL-DIR-RDN-2
+                         BACKWALL BACKWALL
+                         (+ 5 PADDLE-HITS-PER-GAME) 0 #false))
+
+(define BRKT8 (make-breakout (list BALL0 BALL1)
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             MODE-0
+                             NEXT-SILENT-FRAME-0))
+(define BRKT9 (make-breakout (list BALL2)
+                             LOP-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             MODE-0
+                             NEXT-SILENT-FRAME-0))
+(define BRKT10 (make-breakout (list BALL3)
+                              LOP-0
+                              SERVE-NUM-0
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              (make-attract #false "double")
+                              NEXT-SILENT-FRAME-0))
+(define BRKT11 (make-breakout (list BALL3)
+                              LOP-0
+                              (+ 0.5 SERVE-NUM-0)
+                              P1-0
+                              P2-0
+                              HIGH-SCORES-0
+                              CREDIT-COUNT-0
+                              CTRL-PANEL-0
+                              (make-attract #true "progressive")
+                              NEXT-SILENT-FRAME-0))
+
+(define RIGHT-SIDEWALL-BALL (make-ball BALL-MIN-X
+                                       (add1 BALL-MAX-Y)
+                                       0
+                                       (- pi BALL-DIR-RDN-0)
+                                       BACKWALL BACKWALL
+                                       0 0 #false))
+(define LEFT-SIDEWALL-BALL (make-ball (/ PF-WIDTH 2)
+                                      (sub1 BALL-MIN-Y)
+                                      0
+                                      BALL-DIR-RDN-0
+                                      BACKWALL BACKWALL
+                                      0 -1 #false))
+(define NOTHING-BALL (make-ball (/ PF-WIDTH 2)
+                                (/ PF-HEIGHT 2)
+                                0
+                                BALL-DIR-RDN-0
+                                (make-paddle 0 0 1) BACKWALL
+                                0 -1 #false))
+(define BRICK-BALL (make-ball (add1 BALL-MAX-X)
+                              (* 4 CHAR-BLK-LENGTH)
+                              0
+                              BALL-DIR-RDN-0
+                              BACKWALL BACKWALL
+                              0 0 #false))
+(define PADDLE-BALL (make-ball 150
+                               (* 5 CHAR-BLK-LENGTH)
+                               0
+                               BALL-DIR-RDN-0
+                               (make-brick 1 1) BACKWALL
+                               0 -1 #true))
+(define BRKT12 (make-breakout
+                (list
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (add1 CAVITY-BPV-0-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            BACKWALL
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-0-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            BACKWALL
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-1-ROW))
+                            (ball-speed BRICK-BALL)
+                            (- pi BALL-DIR-RDN-0)
+                            (make-paddle 0 0 30)
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 (make-ball (ball-cx BRICK-BALL)
+                            (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-2-ROW))
+                            (ball-speed BRICK-BALL)
+                            BALL-DIR-RDN-0
+                            (make-brick 0 100)
+                            (ball-tick-vobject BRICK-BALL)
+                            (ball-paddle-hit-count BRICK-BALL)
+                            (ball-serve-delay BRICK-BALL)
+                            (ball-has-child? BRICK-BALL))
+                 RIGHT-SIDEWALL-BALL
+                 LEFT-SIDEWALL-BALL
+                 (make-ball (ball-cx PADDLE-BALL)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-0)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (ball-cx PADDLE-BALL)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-1)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (+ (ball-cx PADDLE-BALL) 30)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-2)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (+ (ball-cx PADDLE-BALL) 20)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-2)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (ball-cx PADDLE-BALL)
+                            (ball-cy PADDLE-BALL)
+                            BALL-MAX-SPEED
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            (sub1 PADDLE-HITS-BALL-PROGRESSION-3)
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 (make-ball (+ (ball-cx PADDLE-BALL) 50)
+                            (ball-cy PADDLE-BALL)
+                            (ball-speed PADDLE-BALL)
+                            (ball-dir PADDLE-BALL)
+                            (ball-rico-vobject PADDLE-BALL)
+                            (ball-tick-vobject PADDLE-BALL)
+                            PADDLE-HITS-BALL-PROGRESSION-3
+                            (ball-serve-delay PADDLE-BALL)
+                            (ball-has-child? PADDLE-BALL))
+                 NOTHING-BALL)
+                (list (make-paddle 150 5 50))
+                (+ 0.5 SERVE-NUM-0)
+                P1-0
+                (make-player CAVITY-BONUS
+                             (list
+                              (make-ball (ball-cx BRICK-BALL)
+                                         (* CHAR-BLK-LENGTH (sub1 CAVITY-BPV-2-ROW))
+                                         (ball-speed BRICK-BALL)
+                                         BALL-DIR-RDN-0
+                                         (make-brick 0 100)
+                                         (ball-tick-vobject BRICK-BALL)
+                                         (ball-paddle-hit-count BRICK-BALL)
+                                         (ball-serve-delay BRICK-BALL)
+                                         (ball-has-child? BRICK-BALL))
+                              PADDLE-BALL)
+                             (list
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-2-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-2-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-1-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (sub1 CAVITY-BPV-0-ROW))
+                              (make-brick (- PF-COL-COUNT 2) (add1 CAVITY-BPV-0-ROW)))
+                             (player-progression-count P2-0))
+                HIGH-SCORES-0
+                CREDIT-COUNT-0
+                CTRL-PANEL-0
+                (make-play-mode "cavity" #true #false)
+                NEXT-SILENT-FRAME-0))
+
+(define BRKT13 (make-breakout
+                (list (make-ball BALL-MAX-X
+                            (* 4 CHAR-BLK-LENGTH)
+                            0
+                            BALL-DIR-RDN-0
+                            (make-brick 0 100) BACKWALL
+                            0 0 #false))
+                (list (make-paddle 150 5 PADDLE-MAX-WIDTH))
+                SERVE-NUM-0
+                (make-player (player-score P1-0)
+                             (player-loba P1-0)
+                             (list (make-brick (/ BALL-MAX-X CHAR-BLK-LENGTH) 4))
+                             (player-progression-count P1-0))
+                P2-0
+                HIGH-SCORES-0
+                CREDIT-COUNT-0
+                (make-ctrl-panel #false 0 "double")
+                (make-ready-to-play)
+                NEXT-SILENT-FRAME-0))
+
+(define BRKT14 (make-breakout
+                (breakout-loba BRKT13)
+                (breakout-lop BRKT13)
+                (breakout-serve-num BRKT13)
+                (breakout-p1 BRKT13)
+                (breakout-p2 BRKT13)
+                (breakout-high-scores BRKT13)
+                (breakout-credit-count BRKT13)
+                (make-ctrl-panel #false 0 "progressive")
+                (breakout-mode BRKT13)
+                (breakout-next-silent-frame BRKT13)))
+
+(define BRKT15 (make-breakout
+                (list
+                 (make-ball
+                  BALL-MIN-X
+                  (add1 BALL-MAX-Y)
+                  0
+                  (- pi BALL-DIR-RDN-0)
+                  BACKWALL NOTHING
+                  0 0 #false))
+                (breakout-lop BRKT13)
+                (breakout-serve-num BRKT13)
+                (breakout-p1 BRKT13)
+                (breakout-p2 BRKT13)
+                (breakout-high-scores BRKT13)
+                (breakout-credit-count BRKT13)
+                (breakout-ctrl-panel BRKT13)
+                (breakout-mode BRKT13)
+                (breakout-next-silent-frame BRKT13)))
+
+(define BRKT16 (make-breakout
+                (breakout-loba BRKT15)
+                (breakout-lop BRKT15)
+                (breakout-serve-num BRKT15)
+                (breakout-p1 BRKT15)
+                (breakout-p2 BRKT15)
+                (breakout-high-scores BRKT15)
+                (breakout-credit-count BRKT15)
+                (breakout-ctrl-panel BRKT15)
+                (make-play-mode "cavity" #true #true)
+                (breakout-next-silent-frame BRKT15)))
+  
+; empty list of breakout balls and attract mode
+(check-expect (update BRKT3) BRKT3)
+(check-expect (update BRKT4) BRKT4)
+; empty list of breakout balls and play mode without ended serve and/or not silent
+(check-expect (update BRKT5) BRKT5)
+(check-expect (update BRKT6) BRKT6)
+; empty list of breakout balls and ready-to-play mode
+(check-expect (update BRKT7) BRKT7)
+; at least one breakout ball with serve delay
+(check-within (update BRKT8)
+              (make-breakout (list (make-ball (ball-cx BALL0)
+                                              (ball-cy BALL0)
+                                              (ball-speed BALL0)
+                                              (ball-dir BALL0)
+                                              (ball-rico-vobject BALL0)
+                                              (ball-tick-vobject BALL0)
+                                              (ball-paddle-hit-count BALL0)
+                                              (- (ball-serve-delay BALL0) SPT)
+                                              (ball-has-child? BALL0))
+                                   BALL1)
+                             (breakout-lop BRKT0)
+                             (breakout-serve-num BRKT0)
+                             (breakout-p1 BRKT0)
+                             (breakout-p2 BRKT0)
+                             (breakout-high-scores BRKT0)
+                             (breakout-credit-count BRKT0)
+                             (breakout-ctrl-panel BRKT0)
+                             (breakout-mode BRKT0)
+                             (breakout-next-silent-frame BRKT0))
+              0.001)
+; balls that hit the paddle exactly or more than 'PADDLE-HITS-PER-GAME' times in attract mode
+(check-satisfied (update BRKT9)
+                 (lambda (a-brkt)
+                   (and (cons? (breakout-loba a-brkt))
+                        (attract? (breakout-mode a-brkt))
+                        (attract-v1? (breakout-mode a-brkt))
+                        (string=? "double" (attract-game (breakout-mode a-brkt))))))
+(check-satisfied (update BRKT10)
+                 (lambda (a-brkt)
+                   (and (cons? (breakout-loba a-brkt))
+                        (attract? (breakout-mode a-brkt))
+                        (attract-v1? (breakout-mode a-brkt))
+                        (string=? "progressive" (attract-game (breakout-mode a-brkt))))))
+(check-satisfied (update BRKT11)
+                 (lambda (a-brkt)
+                   (and (cons? (breakout-loba a-brkt))
+                        (attract? (breakout-mode a-brkt))
+                        (attract-v1? (breakout-mode a-brkt))
+                        (string=? "cavity" (attract-game (breakout-mode a-brkt))))))
+(check-within (update BRKT12) BRKT12 0.01)
+(check-within (update BRKT13) BRKT13 0.01)
+(check-within (update BRKT14) BRKT14 0.01)
+(check-within (update BRKT15) BRKT15 0.01)
+(check-within (update BRKT16) BRKT16 0.01)
+
+
+#|
+(define BRKT3 (make-breakout (list (make-ball (col->x 7) (row->y 16) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false))
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-play-mode "cavity" #false #false)
+                             NEXT-SILENT-FRAME-0))
+(define BRKT4 (make-breakout (list (make-ball (col->x 7) (row->y 16) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false)
+                                   (make-ball (col->x 10) (row->y 16) BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false))
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-play-mode "cavity" #false #false)
+                             NEXT-SILENT-FRAME-0))
+
+
+; Examples
+(check-within (update BRKT3) (make-breakout (list (make-ball 176.2495791 392.2495791 BALL-MIN-SPEED (/ pi 4) NOTHING NOTHING 0 0 #false))
+                                            CAVITY-PADDLES-0
+                                            SERVE-NUM-0
+                                            P1-0
+                                            P2-0
+                                            HIGH-SCORES-0
+                                            CREDIT-COUNT-0
+                                            CTRL-PANEL-0
+                                            (make-play-mode "cavity" #false #false)
+                                            NEXT-SILENT-FRAME-0) 0.0001)
+(check-within (update BRKT4) (update-balls BRKT4) 0.0001)
+|#
+
 ;;;;;;;;;;;;;;;;;;;;;;; BALLS ;;;;;;;;;;;;;;;;;;;;;;;
 
 ; update-balls : Breakout -> Breakout
@@ -1258,93 +1696,90 @@
                       (breakout-mode a-brkt)
                       (breakout-next-silent-frame a-brkt))]
       [else
-       (local (; updated balls
-               (define updated-balls
-                 (map (lambda (a-ball)
-                        (update-ball a-ball #true a-brkt))
-                      a-loba))
-              ; updated balls excluding ones that hit the frontwall
-              (define filtered-balls
-                (filter (lambda (a-ball)
-                          (not (frontwall? (ball-tick-vobject a-ball))))
-                        updated-balls))
-              ; players
-              (define a-p1 (breakout-p1 a-brkt))
-              (define a-p2 (breakout-p2 a-brkt))
-              ; player one is playing?
-              (define p1? (player-one? a-brkt))
-              ; updated player balls
-              (define updated-player-balls
-                (map (lambda (a-ball)
-                       (update-ball a-ball #false a-brkt))
-                     (player-loba (if p1? a-p1 a-p2))))
-              ; updated player balls excluding ones that hit the backwall or a paddle
-              (define final-player-balls
-                (filter (lambda (a-ball)
-                          (not (or (backwall? (ball-tick-vobject a-ball))
-                                   (paddle? (ball-tick-vobject a-ball)))))
-                        updated-player-balls))
-              ; excluded player balls
-              (define excluded-player-balls
-                (filter (lambda (a-ball)
-                          (or (backwall? (ball-tick-vobject a-ball))
-                              (paddle? (ball-tick-vobject a-ball))))
-                        updated-player-balls))
-              ; final balls
-              (define final-balls (append excluded-player-balls filtered-balls))
-              ; set-player-loba : Player -> Player
-              ; set the balls 'a-player' to 'final-player-balls'
-              (define (set-player-loba a-player)
-                (make-player (player-score a-player)
-                             final-player-balls
-                             (player-lobr a-player)
-                             (player-progression-count a-player)))
-              ; breakout with all its balls updated
-              (define final-brkt
-                (make-breakout final-balls
-                               (breakout-lop a-brkt)
-                               (breakout-serve-num a-brkt)
-                               (if p1? (set-player-loba a-p1) a-p1)
-                               (if p1? a-p2 (set-player-loba a-p2))
-                               (breakout-high-scores a-brkt)
-                               (breakout-credit-count a-brkt)
-                               (breakout-ctrl-panel a-brkt)
-                               (breakout-mode a-brkt)
-                               (breakout-next-silent-frame a-brkt)))
-              ; serve-children : Breakout -> Breakout
-              ; serve new balls in 'a-brkt'
-              (define (serve-children a-brkt)
-                (foldr (lambda (a-ball some-brkt)
-                         (if (and (ball-has-child? a-ball)
-                                  (= 1 (ball-paddle-hit-count a-ball))
-                                  (paddle? (ball-tick-vobject a-ball)))
-                             (serve-ball 0 #false some-brkt)
-                             some-brkt))
-                       a-brkt
-                       (breakout-loba a-brkt)))
-              ; handle-serve-just-ended : Breakout -> Breakout
-              ; handle 'a-brkt' assuming that a serve just ended
-              (define (handle-serve-just-ended a-brkt)
-                (if (play-mode? (breakout-mode a-brkt))
-                    (make-breakout
-                     (breakout-loba a-brkt)
-                     (breakout-lop a-brkt)
-                     (breakout-serve-num a-brkt)
-                     (breakout-p1 a-brkt)
-                     (breakout-p2 a-brkt)
-                     (breakout-high-scores a-brkt)
-                     (breakout-credit-count a-brkt)
-                     (breakout-ctrl-panel a-brkt)
-                     (make-play-mode (play-mode-game (breakout-mode a-brkt))
-                                     #true #true)
-                     (if (and (pstream? (pstream-set-volume! RS-TICK-STREAM 0))
-                              (void? (pstream-clear! RS-TICK-STREAM)))
-                         (try-andplay RS-BOOP
-                                      a-brkt
-                                      (+ RS-BOOP-LENGTH
-                                         (pstream-current-frame RS-TICK-STREAM)))
-                         (error "something went wrong while trying to mute and clear a pstream")))
-                    a-brkt)))
+       (local (; updated balls excluding ones that hit the frontwall
+               (define filtered-balls
+                 (filter (lambda (a-ball)
+                           (not (frontwall? (ball-tick-vobject a-ball))))
+                         (map (lambda (a-ball)
+                                (update-ball a-ball #true a-brkt))
+                              a-loba)))
+               ; players
+               (define a-p1 (breakout-p1 a-brkt))
+               (define a-p2 (breakout-p2 a-brkt))
+               ; player one is playing?
+               (define p1? (player-one? a-brkt))
+               ; updated player balls excluding ones that hit the frontwall
+               (define updated-player-balls
+                 (filter (lambda (a-ball)
+                           (not (frontwall? (ball-tick-vobject a-ball))))
+                         (map (lambda (a-ball)
+                                (update-ball a-ball #false a-brkt))
+                              (player-loba (if p1? a-p1 a-p2)))))
+               ; updated player balls excluding ones that hit the backwall or a paddle
+               (define final-player-balls
+                 (filter (lambda (a-ball)
+                           (not (or (backwall? (ball-tick-vobject a-ball))
+                                    (paddle? (ball-tick-vobject a-ball)))))
+                         updated-player-balls))
+               ; excluded player balls
+               (define excluded-player-balls
+                 (filter (lambda (a-ball)
+                           (or (backwall? (ball-tick-vobject a-ball))
+                               (paddle? (ball-tick-vobject a-ball))))
+                         updated-player-balls))
+               ; final balls
+               (define final-balls (append excluded-player-balls filtered-balls))
+               ; set-player-loba : Player -> Player
+               ; set the balls 'a-player' to 'final-player-balls'
+               (define (set-player-loba a-player)
+                 (make-player (player-score a-player)
+                              final-player-balls
+                              (player-lobr a-player)
+                              (player-progression-count a-player)))
+               ; breakout with all its balls updated
+               (define final-brkt
+                 (make-breakout final-balls
+                                (breakout-lop a-brkt)
+                                (breakout-serve-num a-brkt)
+                                (if p1? (set-player-loba a-p1) a-p1)
+                                (if p1? a-p2 (set-player-loba a-p2))
+                                (breakout-high-scores a-brkt)
+                                (breakout-credit-count a-brkt)
+                                (breakout-ctrl-panel a-brkt)
+                                (breakout-mode a-brkt)
+                                (breakout-next-silent-frame a-brkt)))
+               ; serve-children : Breakout -> Breakout
+               ; serve new balls in 'a-brkt'
+               (define (serve-children a-brkt)
+                 (foldr (lambda (a-ball some-brkt)
+                          (if (and (ball-has-child? a-ball)
+                                   (= 1 (ball-paddle-hit-count a-ball))
+                                   (paddle? (ball-tick-vobject a-ball)))
+                              (serve-ball 0 #false some-brkt)
+                              some-brkt))
+                        a-brkt
+                        (breakout-loba a-brkt)))
+               ; handle-serve-just-ended : Breakout -> Breakout
+               ; handle 'a-brkt' assuming that a serve just ended
+               (define (handle-serve-just-ended a-brkt)
+                 (if (play-mode? (breakout-mode a-brkt))
+                     (make-breakout
+                      (breakout-loba a-brkt)
+                      (breakout-lop a-brkt)
+                      (breakout-serve-num a-brkt)
+                      (breakout-p1 a-brkt)
+                      (breakout-p2 a-brkt)
+                      (breakout-high-scores a-brkt)
+                      (breakout-credit-count a-brkt)
+                      (breakout-ctrl-panel a-brkt)
+                      (make-play-mode (play-mode-game (breakout-mode a-brkt))
+                                      #true #true)
+                      (try-andplay RS-BOOP
+                                   a-brkt
+                                   (+ RS-BOOP-LENGTH
+                                      (pstream-current-frame (pstream-set-volume! RS-TICK-STREAM 0)))
+                                   (pstream-clear! RS-TICK-STREAM)))
+                     a-brkt)))
          (if (empty? final-balls)
              (handle-serve-just-ended final-brkt)
              (serve-children final-brkt)))])))
@@ -1507,7 +1942,8 @@
                                  collided-paddle
                                  new-phc
                                  (ball-serve-delay new-ball)
-                                 (ball-has-child? new-ball))))]
+                                 (ball-has-child? new-ball)))
+                    #false)]
       ; no collision
       [else
        (make-ball x3 y3
@@ -1593,7 +2029,7 @@
               ; whether or not player one is playing
               (define p1? (player-one? a-brkt))
               ; update-player-bricks : Player -> Player
-              ; update the bricks of 'a-brick' to exclude the four rows
+              ; update the bricks of 'a-brick' to exclude rows above the progressive paddle
               (define (update-player-bricks a-player)
                 (make-player (player-score a-player)
                              (player-loba a-player)
@@ -1624,7 +2060,7 @@
       a-brkt))
 
 ; update-bricks : Breakout -> Breakout
-; update the bricks of the current player playing in 'a-brkt'
+; update the bricks and progression count of the current player playing in 'a-brkt'
 (define (update-bricks a-brkt)
   (local (; current game in 'a-brkt'
           (define a-game (get-game a-brkt))
@@ -1660,7 +2096,6 @@
                     (define ppc (player-progression-count a-player)))
               (cond
                 [(and (string=? "progressive" a-game)
-                      (play-mode? (breakout-mode a-brkt))
                       (ormap (lambda (a-ball)
                                (paddle? (ball-tick-vobject a-ball)))
                              a-loba)
@@ -1698,6 +2133,7 @@
                       (ormap (lambda (a-ball)
                                (paddle? (ball-tick-vobject a-ball)))
                              a-loba))
+                 ; reset the player bricks and balls
                  (make-player (player-score a-player)
                               (cond
                                 [(string=? "double" a-game)
@@ -1711,6 +2147,7 @@
                                  CAVITY-BRICKS-0])
                               (add1 ppc))]
                 [else
+                 ; just replace the current player's bricks
                  (make-player (player-score a-player)
                               (player-loba a-player)
                               new-bricks
@@ -1745,7 +2182,7 @@
           ; the score received in the current tick
           (define tick-score
             (apply + (map (lambda (a-ball)
-                            (local (; BObject 'a-ball' collided with during the current tick
+                            (local (; VObject 'a-ball' collided with during the current tick
                                     (define tick-vobject (ball-tick-vobject a-ball)))
                               (if (brick? tick-vobject)
                                   (brick-point-value (brick-row tick-vobject)
@@ -2047,6 +2484,117 @@
      (try-set-player-one #false a-brkt)]
     [else a-brkt]))
 
+;; Data examples
+
+#|
+(define SERVE-BALL-0
+  (make-ball (+ BALL-MIN-X (random (add1 (- BALL-MAX-X BALL-MIN-X))))
+             (/ PF-HEIGHT 2)
+             BALL-MIN-SPEED
+             (vector-ref ANGLES (random 6))
+             NOTHING NOTHING
+             0 serve-delay has-child?))
+(define BRKT1
+  (make-breakout ( ... )
+                 '()
+                 ( ... )
+                 (make-player 0 '() '() 0)
+                 (make-player 0 '() '() 0)
+                 (make-high-scores 0 0 0)
+                 0
+                 (make-ctrl-panel #true 0 "cavity")
+                 ( ... )))
+(define BRKT1
+  (make-breakout ( ... )
+                 '()
+                 ( ... )
+                 (make-player 0 '() '() 0)
+                 (make-player 0 '() '() 0)
+                 (make-high-scores 0 0 0)
+                 0
+                 (make-ctrl-panel #true 0 "cavity")
+                 ( ... )))
+(define BRKT1
+  (make-breakout ( ... )
+                 '()
+                 ( ... )
+                 (make-player 0 '() '() 0)
+                 (make-player 0 '() '() 0)
+                 (make-high-scores 0 0 0)
+                 0
+                 (make-ctrl-panel #true 0 "cavity")
+                 ( ... )))
+|#
+
+(define DOUBLE-BRKT
+  (make-breakout '() '() 3.5
+                 (make-player 0 '() '() 0)
+                 (make-player 0 '() '() 0)
+                 (make-high-scores 0 0 0)
+                 0
+                 (make-ctrl-panel #true 0 "cavity")
+                 (make-play-mode "double" #false #false)
+                 0))
+(define CAVITY-BRKT
+  (make-breakout '() '() 3.5
+                 (make-player 0 '() '() 0)
+                 (make-player 0 '() '() 0)
+                 (make-high-scores 0 0 0)
+                 0
+                 (make-ctrl-panel #true 0 "cavity")
+                 (make-play-mode "cavity" #false #false)
+                 0))
+(define DOUBLE-SERVE-BALL
+  (make-ball (+ BALL-MIN-X (random (add1 (- BALL-MAX-X BALL-MIN-X))))
+             (/ PF-HEIGHT 2)
+             BALL-MIN-SPEED
+             (vector-ref ANGLES (random 6))
+             NOTHING NOTHING
+             0 1 #true))
+(define CAVITY-SERVE-BALL
+  (make-ball (+ BALL-MIN-X (random (add1 (- BALL-MAX-X BALL-MIN-X))))
+             (/ PF-HEIGHT 2)
+             BALL-MIN-SPEED
+             (vector-ref ANGLES (random 6))
+             NOTHING NOTHING
+             0 1 #false))
+#|
+(make-breakout (list DOUBLE-SERVE-BALL)
+                             (breakout-lop DOUBLE-BRKT)
+                             (breakout-serve-num DOUBLE-BRKT)
+                             (breakout-p1 DOUBLE-BRKT)
+                             (breakout-p2 DOUBLE-BRKT)
+                             (breakout-high-scores DOUBLE-BRKT)
+                             (breakout-credit-count DOUBLE-BRKT)
+                             (breakout-ctrl-panel DOUBLE-BRKT)
+                             (make-play-mode (play-mode-game (breakout-mode DOUBLE-BRKT))
+                                             #true
+(play-mode-end-serve? (breakout-mode DOUBLE-BRKT)))
+                             (breakout-next-silent-frame DOUBLE-BRKT))
+|#
+
+;; Examples
+
+; ON SERVE
+; check first case (serve)
+(check-satisfied (handle-key DOUBLE-BRKT " ")
+                 (compose cons? breakout-loba))
+(check-satisfied (handle-key CAVITY-BRKT " ")
+                 (compose play-mode-has-one-serve? breakout-mode))
+; check second/last case (return input unchanged)
+
+; ON SWITCH
+;(check-expect (handle-key BRKT0 "\r") BRKT0)
+;(check-expect (handle-key BRKT0 "left") BRKT0)
+;(check-expect (handle-key BRKT0 "a") BRKT0)
+;(check-expect (handle-key BRKT0 "right") BRKT0)
+;(check-expect (handle-key BRKT0 "d") BRKT0)
+
+; ON PLAYER START
+
+; ON ELSE
+(check-expect (handle-key BRKT0 "t") BRKT0)
+
 ; try-serve : Breakout -> Breakout
 ; serve one ball in 'a-brkt' if possible
 (define (try-serve a-brkt)
@@ -2149,6 +2697,65 @@
                               a-brkt))]
       [else a-brkt])))
 
+; Data Examples
+(define BRKT1 (make-breakout '()
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             (make-play-mode "cavity" #false #false)
+                             NEXT-SILENT-FRAME-0))
+(define BRKT2 (make-breakout '()
+                             CAVITY-PADDLES-0
+                             SERVE-NUM-0
+                             P1-0
+                             P2-0
+                             HIGH-SCORES-0
+                             CREDIT-COUNT-0
+                             CTRL-PANEL-0
+                             MODE-0
+                             NEXT-SILENT-FRAME-0))
+
+
+; Examples
+(check-expect (handle-mouse BRKT1 100 50 "move")
+              (make-breakout (breakout-loba BRKT1)
+                             (list (make-paddle 76 29 PADDLE-MAX-WIDTH))
+                             (breakout-serve-num BRKT1)
+                             (breakout-p1 BRKT1)
+                             (breakout-p2 BRKT1)
+                             (breakout-high-scores BRKT1)
+                             (breakout-credit-count BRKT1)
+                             (make-ctrl-panel #true 76 "cavity")
+                             (breakout-mode BRKT1)
+                             (breakout-next-silent-frame BRKT1)))
+(check-expect (handle-mouse BRKT2 100 50 "move")
+              (make-breakout (breakout-loba BRKT2)
+                             (breakout-lop BRKT2)
+                             (breakout-serve-num BRKT2)
+                             (breakout-p1 BRKT2)
+                             (breakout-p2 BRKT2)
+                             (breakout-high-scores BRKT2)
+                             (breakout-credit-count BRKT2)
+                             (make-ctrl-panel #true 76 "cavity")
+                             (breakout-mode BRKT2)
+                             (breakout-next-silent-frame BRKT2)))
+(check-expect (handle-mouse BRKT1 5 50 "move")
+              (make-breakout (breakout-loba BRKT1)
+                             (list (make-paddle IBRICK-HEIGHT 29 PADDLE-MAX-WIDTH))
+                             (breakout-serve-num BRKT1)
+                             (breakout-p1 BRKT1)
+                             (breakout-p2 BRKT1)
+                             (breakout-high-scores BRKT1)
+                             (breakout-credit-count BRKT1)
+                             (make-ctrl-panel #true IBRICK-HEIGHT "cavity")
+                             (breakout-mode BRKT1)
+                             (breakout-next-silent-frame BRKT1)))
+(check-expect (handle-mouse BRKT1 100 50 "drag") BRKT1)      
+
 ; try-update-paddle-x : Number Breakout -> Breakout
 ; update the paddle position of the control panel as well as
 ; of all the paddles in 'a-brkt' if possible
@@ -2188,7 +2795,7 @@
     [on-key handle-key]
     [on-mouse handle-mouse]))
 
-; use the Breakout (serve "cavity" ATTRACT-CAVITY-0)
-; to run this program
+; use the following expression to run the program
+; (run BRKT0)
 
-(run (serve "cavity" ATTRACT-CAVITY-0))
+(stop)
